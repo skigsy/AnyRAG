@@ -26,7 +26,7 @@ RUST_RAG_IMAGE=$(
     test "$(printf '%s\n' "$entry" | wc -l)" -eq 1 || exit 1
     printf '%s\n' "$entry" | sha256sum --check --strict >&2 || exit 1
   done
-  loaded_tag=$(jq -er '.image_tag | select(test("^any-rag-local:1\\.4\\.1-[a-f0-9]{12}$"))' "$metadata") || exit 1
+  loaded_tag=$(jq -er '.image_tag | select(test("^any-rag-local:1\\.0\\.0-[a-f0-9]{12}$"))' "$metadata") || exit 1
   reviewed_id=$(jq -er '.image_id | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata") || exit 1
   image_config=$(jq -er '.config_digest | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata") || exit 1
   docker load --input "$archive" >&2 || exit 1

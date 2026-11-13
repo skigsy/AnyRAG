@@ -97,13 +97,13 @@ Pair the browser with the access code shown in your terminal. Use `dashboard --n
 
 Use `dashboard --review-queue` to show pending graph proposals and their exact quotes for this session. Use the terminal with the same state directory to apply review decisions.
 
-On a native Linux Docker host, a portable image that includes the dashboard can read a mounted private index. Replace the host path and image tag, and open the displayed address in a browser on the same host.
+On a native Linux Docker host, a portable image that includes the dashboard can read a mounted private index. Load the image with the [Linux release instructions](../../infra/private-vm.md#load-a-reviewed-release-archive) in the same shell. Set the host index path and open the displayed address in a browser on that host.
 
 ~~~sh
 docker run --rm --init -it --network host --no-healthcheck --read-only \
   --user "$(id -u):$(id -g)" --workdir /index \
   --mount "type=bind,source=/absolute/private/index,target=/index,readonly" \
-  any-rag-local:1.1.0 --state-dir /index dashboard --no-open
+  "$RUST_RAG_IMAGE" --state-dir /index dashboard --no-open
 ~~~
 
 Use a native build for a desktop install when Docker cannot share the host's loopback interface.
