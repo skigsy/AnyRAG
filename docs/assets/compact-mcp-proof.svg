@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="232" viewBox="0 0 960 232" role="img" aria-labelledby="title desc">
+  <title id="title">Compact versus full MCP evidence</title>
+  <desc id="desc">Paired local Qwen3-4B test on 500 synthetic documents. Median input tokens: 2,841.5 to 1,940.5. Median model response time: 766 to 657 milliseconds. Fully correct cited answers: 24 of 36 to 33 of 36.</desc>
+  <defs>
+    <linearGradient id="panel" x2="1" y2="1"><stop stop-color="#1c171c"/><stop offset="1" stop-color="#0d0e11"/></linearGradient>
+  </defs>
+  <rect x="1" y="1" width="958" height="230" rx="15" fill="url(#panel)" stroke="#514446" stroke-width="2"/>
+  <g font-family="Arial,Helvetica,sans-serif">
+    <text x="33" y="42" fill="#f6c279" font-size="19" font-weight="700" letter-spacing="1.5">COMPACT VS FULL MCP EVIDENCE</text>
+    <text x="34" y="71" fill="#c9bdb4" font-size="19">Paired local Qwen3-4B trial · 500 synthetic documents</text>
+    <path d="M34 92H926M328 108v91M634 108v91" stroke="#554348"/>
+    <g fill="#f5f0e8" font-family="Georgia,Times New Roman,serif" font-size="54">
+      <text x="34" y="153">−31.7%</text><text x="353" y="153">−14.2%</text><text x="659" y="153">33/36</text>
+    </g>
+    <g fill="#f6c279" font-size="20" font-weight="700">
+      <text x="35" y="182">Median input tokens</text><text x="354" y="182">Median model response</text><text x="660" y="182">Exact cited answers</text>
+    </g>
+    <g fill="#c9bdb4" font-size="20">
+      <text x="35" y="209">2,841.5 → 1,940.5</text><text x="354" y="209">766 ms → 657 ms</text><text x="660" y="209">24/36 → 33/36</text>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,310 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, inspected 2026-11-06
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Validate public planning files
+        run: |
+          candidate=()
+          if [[ "$GITHUB_REF" =~ ^refs/heads/codex/release-(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            candidate=(--candidate-tag "${BASH_REMATCH[1]}")
+          fi
+          python3 scripts/check_workspace.py --require-git --release-docs "${candidate[@]}"
+      - name: Install checksum-pinned secret scanner
+        run: python3 scripts/bootstrap_gitleaks.py --target-dir "${{ runner.temp }}/rust-rag-tools"
+      - name: Scan approved content and complete public history
+        run: python3 scripts/security_check.py --gitleaks "${{ runner.temp }}/rust-rag-tools/gitleaks" --history --work-dir "${{ runner.temp }}/rust-rag-scans"
+      - name: Check locked Rust dependencies against OSV
+        run: python3 -B scripts/check_advisories.py
+
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Select Python for the synthetic test harness
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13'
+      - name: Select Node.js with node:sqlite for the MCP answer client test
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Verify the standalone Rust executable
+        shell: pwsh
+        run: |
+          $env:CARGO_TARGET_DIR = Join-Path $env:RUNNER_TEMP 'rust-rag-target'
+          cargo test --locked --no-default-features
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo build --locked --no-default-features --bin rust-rag
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $binary = if ($IsWindows) { 'rust-rag.exe' } else { 'rust-rag' }
+          python crates/rust-rag/check.py (Join-Path $env:CARGO_TARGET_DIR "debug/$binary")
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -B scripts/rehearse_operator.py --personal-only `
+            --binary (Join-Path $env:CARGO_TARGET_DIR "debug/$binary") `
+            --receipt (Join-Path $env:RUNNER_TEMP 'personal-quickstart.json')
+      - name: Verify document readers, OCR citations, graph, retrieval, inference integrity, shared service, and MCP answer delivery
+        shell: pwsh
+        run: |
+          $env:CARGO_TARGET_DIR = Join-Path $env:RUNNER_TEMP 'rust-rag-target'
+          # Shared-service fixtures use bounded deadlines. Avoid competing
+          # Windows loopback and filesystem tests on the hosted runner.
+          if ($IsWindows) { $env:RUST_TEST_THREADS = '1' }
+          cargo test --locked --features pdf,ocr,docx,xlsx,shared,inference,mcp,dashboard
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo build --locked --features pdf,ocr,docx,xlsx,shared,inference,mcp,dashboard --bin rust-rag
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $binary = if ($IsWindows) { 'rust-rag.exe' } else { 'rust-rag' }
+          python crates/rust-rag/check.py (Join-Path $env:CARGO_TARGET_DIR "debug/$binary") --check-advanced
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:RUST_RAG_BIN = Join-Path $env:CARGO_TARGET_DIR "debug/$binary"
+          # The locked-index test needs node:sqlite; fail rather than skip it.
+          node -e "require('node:sqlite')"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node --test examples/mcp-answer-client.test.mjs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Verify the four personal workflow additions
+        if: runner.os == 'Linux'
+        run: |
+          binary="$RUNNER_TEMP/rust-rag-target/debug/rust-rag"
+          python -B scripts/smoke_practical_gaps.py "$binary" mcp dashboard xlsx
+          sudo python3 -B scripts/smoke_practical_gaps.py "$binary" scheduled-sync
+      - name: Rehearse scoped Graph RAG and recovery over the public HTTP API
+        shell: pwsh
+        run: |
+          $binary = if ($IsWindows) { 'rust-rag.exe' } else { 'rust-rag' }
+          $openssl = Get-Command openssl -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty Source
+          if (-not $openssl -and $IsWindows) {
+            $openssl = Join-Path $env:ProgramFiles 'Git/usr/bin/openssl.exe'
+          }
+          if (-not $openssl -or -not (Test-Path -LiteralPath $openssl -PathType Leaf)) {
+            throw 'The synthetic rehearsal requires OpenSSL.'
+          }
+          python -B scripts/rehearse_shared.py --openssl $openssl `
+            --binary (Join-Path $env:RUNNER_TEMP "rust-rag-target/debug/$binary") `
+            --receipt (Join-Path $env:RUNNER_TEMP 'shared-rehearsal.json')
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $receipt = Join-Path $env:RUNNER_TEMP 'operator-rehearsal.json'
+          python -B scripts/rehearse_operator.py --openssl $openssl `
+            --binary (Join-Path $env:RUNNER_TEMP "rust-rag-target/debug/$binary") `
+            --receipt $receipt
+          $result = $LASTEXITCODE
+          Get-Content -LiteralPath $receipt | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          exit $result
+      - name: Retain Linux operator qualification receipt
+        if: ${{ always() && runner.os == 'Linux' && startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: linux-operator-rehearsal
+          path: ${{ runner.temp }}/operator-rehearsal.json
+          if-no-files-found: error
+
+  cold-linux:
+    if: ${{ github.repository == 'skigsy/AnyRAG' && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Follow the public operator walkthrough with cold Rust caches
+        shell: bash
+        run: |
+          started=$(date +%s)
+          work=$(mktemp -d "$RUNNER_TEMP/anyrag-cold.XXXXXX")
+          receipt_dir="$RUNNER_TEMP/cold-linux-receipt"
+          mkdir "$receipt_dir"
+          export RUSTUP_HOME="$work/rustup"
+          export CARGO_HOME="$work/cargo"
+          test ! -e "$RUSTUP_HOME" && test ! -e "$CARGO_HOME"
+          cd "$work"
+          git clone https://github.com/skigsy/AnyRAG.git
+          cd AnyRAG
+          git checkout --detach "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test ! -e target
+          channel=$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
+          rustup toolchain install "$channel" --profile minimal
+          rustc --version | grep -F "rustc $channel "
+          cargo build --locked --features shared --bin rust-rag
+          built=$(date +%s)
+          python3 -B scripts/rehearse_operator.py \
+            --binary target/debug/rust-rag --receipt "$receipt_dir/operator.json"
+          finished=$(date +%s)
+          jq -e '.status == "pass" and (.checks | length) == 16 and all(.checks[]; . == "pass")' \
+            "$receipt_dir/operator.json"
+          jq -n --arg commit "$GITHUB_SHA" --arg rust "$(rustc --version)" \
+            --arg os "$(lsb_release -ds)" --argjson setup_and_build_seconds "$((built - started))" \
+            --argjson rehearsal_seconds "$((finished - built))" \
+            '{source_commit:$commit, operator:"GitHub-hosted Linux job", os:$os, toolchain:$rust,
+              scope:"fresh public clone, empty Rustup and Cargo homes, empty target, synthetic inputs",
+              setup_and_build_seconds:$setup_and_build_seconds, rehearsal_seconds:$rehearsal_seconds,
+              friction:"Completed the documented commands with a detached checkout of the tested commit."}' \
+            > "$receipt_dir/cold-run.json"
+          cat "$receipt_dir/cold-run.json" "$receipt_dir/operator.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain cold reproduction receipts
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: cold-linux-reproduction
+          path: ${{ runner.temp }}/cold-linux-receipt/*.json
+          if-no-files-found: error
+
+  aws-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Test native AWS adapter contracts with synthetic fixtures
+        run: |
+          cargo test --locked --features aws --lib cloud::
+      - name: Lint deployment templates
+        run: pipx run --spec cfn-lint==1.60.0 cfn-lint --template infra/aws-storage.yml infra/aws.yml
+      - name: Verify the AWS image starts offline
+        run: |
+          docker build --build-arg WITH_AWS=1 --tag rust-rag:aws-ci .
+          docker run --rm --network none rust-rag:aws-ci capabilities --json |
+            jq -e '.compiled.aws_adapters and .compiled.shared_service and .compiled.docx'
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Build the portable Rust image
+        run: |
+          docker build --tag rust-rag:ci .
+          docker run --rm --network none rust-rag:ci capabilities --json |
+            jq -e '.compiled.pdf and .compiled.docx and .compiled.shared_service and (.compiled.aws_adapters | not)'
+      - name: Exercise the image as its non-root user with no external network
+        shell: bash
+        run: |
+          docker run --rm --network none --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,uid=10001,gid=10001,mode=0700 \
+            --entrypoint /bin/sh rust-rag:ci -ec '
+              test "$(id -u)" = 10001
+              if command -v python3; then exit 1; fi
+              mkdir /tmp/notes
+              printf "%s\n" "The Ternmarker is in drawer seven." >/tmp/notes/fixture.md
+              rust-rag init --state-dir /tmp/index
+              rust-rag ingest /tmp/notes --state-dir /tmp/index
+              rust-rag query Ternmarker --state-dir /tmp/index --json | grep -q "drawer seven"
+              rust-rag remove --all --state-dir /tmp/index
+              rust-rag query Ternmarker --state-dir /tmp/index --json | grep -q "\"status\":\"abstained\""
+              test -f /tmp/notes/fixture.md
+            '
+      - name: Check authenticated ingestion and retrieval in the shared image
+        shell: bash
+        run: |
+          fixture=$(mktemp -d "$RUNNER_TEMP/rust-rag-container.XXXXXX")
+          mkdir "$fixture/config" "$fixture/source"
+          mkdir -m 0700 "$fixture/policy" "$fixture/policy/versions"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$fixture/test-key.pem" 2>/dev/null
+          python3 - "$fixture" <<'PY'
+          from base64 import urlsafe_b64encode
+          from pathlib import Path
+          import json
+          import subprocess
+          import sys
+          import time
+
+          root = Path(sys.argv[1])
+          private = str(root / "test-key.pem")
+          public = subprocess.check_output(["openssl", "rsa", "-in", private,
+                                           "-noout", "-modulus"], text=True)
+          def b64(value):
+              return urlsafe_b64encode(value).rstrip(b"=")
+
+          modulus = b64(bytes.fromhex(public.strip().split("=", 1)[1])).decode()
+          (root / "config" / "jwks.json").write_text(json.dumps(
+              {"keys": [{"kty": "RSA", "kid": "fixture", "n": modulus, "e": "AQAB"}]}))
+          claims = {"iss": "https://issuer.example.invalid", "aud": "fixture", "sub": "operator",
+                    "exp": int(time.time()) + 300}
+          token = b64(b'{"alg":"RS256","kid":"fixture"}') + b"." + b64(json.dumps(claims).encode())
+          signature = subprocess.check_output(["openssl", "dgst", "-sha256", "-sign", private], input=token)
+          (root / "test-header").write_bytes(b"Authorization: Bearer " + token + b"." + b64(signature) + b"\n")
+          PY
+          cat >"$fixture/config/profile.json" <<'JSON'
+          {
+            "schema_version": 1,
+            "state_dir": "/var/lib/rust-rag",
+            "allow_proxy_http": true,
+            "identity": {"issuer": "https://issuer.example.invalid", "audience": "fixture", "jwks_file": "/run/rust-rag/config/jwks.json"},
+            "policy": {"kind": "file", "directory": "/run/rust-rag/policy"},
+            "sources": {"reference": {"kind": "folder", "root": "/srv/rust-rag/reference"}}
+          }
+          JSON
+          cat >"$fixture/policy/current.json" <<'JSON'
+          {
+            "schema_version": 1, "version": 1, "issuer": "https://issuer.example.invalid",
+            "administrators": ["operator"], "subjects": {}, "collections": {"reference": {"subjects": ["operator"]}}
+          }
+          JSON
+          cp "$fixture/policy/current.json" "$fixture/policy/versions/1.json"
+          printf '%s\n' 'The Ternmarker is in drawer seven.' >"$fixture/source/fixture.md"
+          sudo chown -R 10001:10001 "$fixture/policy"
+          container=$(docker run --rm --detach --init --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,size=128m \
+            --tmpfs /var/lib/rust-rag:rw,nosuid,nodev,uid=10001,gid=10001,mode=0700 \
+            --mount "type=bind,src=$fixture/config,dst=/run/rust-rag/config,readonly" \
+            --mount "type=bind,src=$fixture/policy,dst=/run/rust-rag/policy,readonly" \
+            --mount "type=bind,src=$fixture/source,dst=/srv/rust-rag/reference,readonly" \
+            rust-rag:ci)
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          healthy=false
+          for attempt in {1..20}; do
+            if docker exec "$container" curl -fsS --max-time 2 http://127.0.0.1:8787/health |
+              jq -e '.status == "ok"'; then
+              healthy=true
+              break
+            fi
+            sleep 1
+          done
+          test "$healthy" = true
+          unauthorized=$(docker exec "$container" curl -sS --max-time 2 -o /dev/null -w '%{http_code}' \
+            http://127.0.0.1:8787/v1/admin/status)
+          test "$unauthorized" = 401
+          api() {
+            docker exec -i "$container" curl -fsS --max-time 5 -H @- "$@" <"$fixture/test-header"
+          }
+          api -X POST http://127.0.0.1:8787/v1/admin/sync | jq -e '.status == "running"'
+          synced=false
+          for attempt in {1..20}; do
+            if api http://127.0.0.1:8787/v1/admin/status | jq -e '.sync.status == "complete"'; then
+              synced=true
+              break
+            fi
+            sleep 1
+          done
+          test "$synced" = true
+          api -H 'Content-Type: application/json' --data '{"question":"Ternmarker"}' \
+            http://127.0.0.1:8787/v1/query | jq -e '.evidence[0].text == "The Ternmarker is in drawer seven."'

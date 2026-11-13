@@ -1,0 +1,471 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private single-host Rust RAG service with attached SQLite and opt-in Neptune.
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PrivateSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Existing private subnets in at least two Availability Zones.
+  HostSubnet:
+    Type: AWS::EC2::Subnet::Id
+  HostAvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+  HostAmi:
+    Type: AWS::EC2::Image::Id
+    Description: Approved x86-64 AL2023 AMI with AWS CLI v2 and /dev/xvda root mapping.
+  HostInstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedPattern: '[a-z0-9]+\.[a-z0-9]+'
+    Description: Select a Nitro instance for stable attached volume discovery.
+  EvidenceVolumeGiB:
+    Type: Number
+    MinValue: 10
+    MaxValue: 16384
+    Default: 32
+  ClientCidr:
+    Type: String
+    AllowedPattern: '(10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/([89]|[12][0-9]|3[0-2])|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3}/(1[2-9]|2[0-9]|3[0-2])|192\.168\.[0-9]{1,3}\.[0-9]{1,3}/(1[6-9]|2[0-9]|3[0-2]))'
+    Description: IPv4 client range reachable over your approved private network.
+  ListenerCertificate:
+    Type: String
+    AllowedPattern: 'arn:[a-z0-9-]+:acm:[a-z0-9-]+:[0-9]{12}:certificate/[a-f0-9-]+'
+  ImageRepository:
+    Type: String
+    AllowedPattern: '[a-z0-9]+([._/-][a-z0-9]+)*'
+    Description: Approved ECR repository in this account and region.
+  ImageDigest:
+    Type: String
+    AllowedPattern: '[a-f0-9]{64}'
+    Description: SHA-256 digest without its prefix.
+  SourceBucket:
+    Type: String
+    AllowedPattern: '[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]'
+  SourcePrefix:
+    Type: String
+    Default: 'documents/'
+    AllowedPattern: '([a-zA-Z0-9_-]+/)+'
+  PolicyBucket:
+    Type: String
+    AllowedPattern: '[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]'
+  PolicyKey:
+    Type: String
+    Default: 'policy.json'
+    AllowedPattern: '([a-zA-Z0-9_-]+/)*[a-zA-Z0-9_-]+\.json'
+  BackupBucket:
+    Type: String
+    AllowedPattern: '[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]'
+  BackupPrefix:
+    Type: String
+    Default: 'snapshots/'
+    AllowedPattern: '([a-zA-Z0-9_-]+/)+'
+  ProfileSecretArn:
+    Type: String
+    AllowedPattern: 'arn:[a-z0-9-]+:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[a-zA-Z0-9_+=.@/-]+'
+  ModelKeySecretArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '(|arn:[a-z0-9-]+:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[a-zA-Z0-9_+=.@/-]+)'
+  EnableNeptune:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+  NeptuneKeySecretArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '(|arn:[a-z0-9-]+:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[a-zA-Z0-9_+=.@/-]+)'
+  NeptuneEngineVersion:
+    Type: String
+    Default: ''
+    AllowedPattern: '(|1\.[0-9]+\.[0-9]+\.[0-9]+)'
+    Description: Required for opt-in Neptune. Select an available engine supporting custom openCypher IDs.
+  NeptuneInstanceClass:
+    Type: String
+    Default: db.r6g.large
+    AllowedPattern: 'db\.[a-z0-9]+\.[a-z0-9]+'
+Rules:
+  SeparateStores:
+    Assertions:
+      - Assert: !And
+          - !Not [!Equals [!Ref PolicyBucket, !Ref SourceBucket]]
+          - !Not [!Equals [!Ref PolicyBucket, !Ref BackupBucket]]
+          - !Not [!Equals [!Ref SourceBucket, !Ref BackupBucket]]
+        AssertDescription: Use separate versioned source, backup, and protected current-policy stores.
+  NeptuneInputs:
+    RuleCondition: !Equals [!Ref EnableNeptune, 'true']
+    Assertions:
+      - Assert: !And
+          - !Not [!Equals [!Ref NeptuneKeySecretArn, '']]
+          - !Not [!Equals [!Ref NeptuneEngineVersion, '']]
+        AssertDescription: Set the Neptune engine version and opaque-ID key secret before enabling Neptune.
+Conditions:
+  UseNeptune: !Equals [!Ref EnableNeptune, 'true']
+  UseNeptuneKey: !And [!Condition UseNeptune, !Not [!Equals [!Ref NeptuneKeySecretArn, '']]]
+  UseModelKey: !Not [!Equals [!Ref ModelKeySecretArn, '']]
+Resources:
+  HostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Rust RAG application and approved HTTPS dependencies
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - Description: HTTPS for OS repositories, ECR, S3, identity and approved model endpoints
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+  IngressSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Internal Rust RAG HTTPS ingress
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref ClientCidr
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 8787
+          ToPort: 8787
+          DestinationSecurityGroupId: !GetAtt HostSecurityGroup.GroupId
+  ApplicationIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt HostSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 8787
+      ToPort: 8787
+      SourceSecurityGroupId: !GetAtt IngressSecurityGroup.GroupId
+  NeptuneSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: UseNeptune
+    Properties:
+      GroupDescription: Neptune reachable only from the Rust RAG host group
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8182
+          ToPort: 8182
+          SourceSecurityGroupId: !GetAtt HostSecurityGroup.GroupId
+      SecurityGroupEgress:
+        - Description: No outbound connections beyond loopback; ingress responses are stateful
+          IpProtocol: '-1'
+          CidrIp: 127.0.0.1/32
+  NeptuneHostEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: UseNeptune
+    Properties:
+      GroupId: !GetAtt HostSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 8182
+      ToPort: 8182
+      DestinationSecurityGroupId: !GetAtt NeptuneSecurityGroup.GroupId
+  NeptuneSubnets:
+    Type: AWS::Neptune::DBSubnetGroup
+    Condition: UseNeptune
+    Properties:
+      DBSubnetGroupDescription: Private subnet group for Rust RAG graph projection
+      SubnetIds: !Ref PrivateSubnets
+  NeptuneCluster:
+    Type: AWS::Neptune::DBCluster
+    Condition: UseNeptune
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      BackupRetentionPeriod: 7
+      DBSubnetGroupName: !Ref NeptuneSubnets
+      DeletionProtection: true
+      EngineVersion: !Ref NeptuneEngineVersion
+      IamAuthEnabled: true
+      Port: 8182
+      StorageEncrypted: true
+      VpcSecurityGroupIds: [!GetAtt NeptuneSecurityGroup.GroupId]
+  NeptuneWriter:
+    Type: AWS::Neptune::DBInstance
+    Condition: UseNeptune
+    Properties:
+      DBClusterIdentifier: !Ref NeptuneCluster
+      DBInstanceClass: !Ref NeptuneInstanceClass
+      DBSubnetGroupName: !Ref NeptuneSubnets
+      PubliclyAccessible: false
+  WorkloadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: !Sub 'ec2.${AWS::URLSuffix}'}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RustRagDeploymentAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucketVersions
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${SourceBucket}'
+                Condition:
+                  StringLike: {'s3:prefix': !Sub '${SourcePrefix}*'}
+              - Effect: Allow
+                Action: s3:GetObjectVersion
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${SourceBucket}/${SourcePrefix}*'
+              - Effect: Allow
+                Action: [s3:GetObject, s3:GetObjectVersion]
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${PolicyBucket}/${PolicyKey}'
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${BackupBucket}/${BackupPrefix}*.sqlite3'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${BackupBucket}/${BackupPrefix}*.json'
+                Condition:
+                  StringEquals:
+                    's3:if-none-match': '*'
+                    's3:x-amz-server-side-encryption': AES256
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${BackupBucket}/${BackupPrefix}*.sqlite3'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${BackupBucket}/${BackupPrefix}*.json'
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref ProfileSecretArn
+                  - !If [UseModelKey, !Ref ModelKeySecretArn, !Ref 'AWS::NoValue']
+                  - !If [UseNeptuneKey, !Ref NeptuneKeySecretArn, !Ref 'AWS::NoValue']
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action: [ecr:BatchCheckLayerAvailability, ecr:BatchGetImage, ecr:GetDownloadUrlForLayer]
+                Resource: !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ImageRepository}'
+              - !If
+                - UseNeptune
+                - Effect: Allow
+                  Action: [neptune-db:ReadDataViaQuery, neptune-db:WriteDataViaQuery, neptune-db:DeleteDataViaQuery]
+                  Resource: !Sub 'arn:${AWS::Partition}:neptune-db:${AWS::Region}:${AWS::AccountId}:${NeptuneCluster.ClusterResourceId}/*'
+                  Condition:
+                    StringEquals: {'neptune-db:QueryLanguage': OpenCypher}
+                - !Ref 'AWS::NoValue'
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref WorkloadRole]
+  LaunchSettings:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1
+          InstanceMetadataTags: disabled
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              Encrypted: true
+              VolumeType: gp3
+              VolumeSize: 16
+  EvidenceVolume:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AvailabilityZone: !Ref HostAvailabilityZone
+      Encrypted: true
+      Size: !Ref EvidenceVolumeGiB
+      VolumeType: gp3
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-evidence'}]
+  Host:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref HostAmi
+      InstanceType: !Ref HostInstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchSettings
+        Version: !GetAtt LaunchSettings.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: false
+          GroupSet: [!GetAtt HostSecurityGroup.GroupId]
+          SubnetId: !Ref HostSubnet
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            set -euo pipefail
+            umask 077
+            dnf install -y docker util-linux e2fsprogs jq
+            systemctl enable --now docker
+            install -d -m 0700 /etc/rust-rag /var/lib/rust-rag
+            cat > /etc/rust-rag/host.env <<'ENVIRONMENT'
+            AWS_DEFAULT_REGION=${AWS::Region}
+            AWS_REGION=${AWS::Region}
+            AWS_PAGER=
+            IMAGE=${AWS::AccountId}.dkr.ecr.${AWS::Region}.${AWS::URLSuffix}/${ImageRepository}@sha256:${ImageDigest}
+            REGISTRY=${AWS::AccountId}.dkr.ecr.${AWS::Region}.${AWS::URLSuffix}
+            VOLUME_ID=${EvidenceVolume}
+            PROFILE_SECRET=${ProfileSecretArn}
+            MODEL_KEY_SECRET=${ModelKeySecretArn}
+            NEPTUNE_KEY_SECRET=${NeptuneSecret}
+            NEPTUNE_ENDPOINT=${NeptuneUrl}
+            SOURCE_BUCKET=${SourceBucket}
+            SOURCE_PREFIX=${SourcePrefix}
+            POLICY_BUCKET=${PolicyBucket}
+            POLICY_KEY=${PolicyKey}
+            BACKUP_BUCKET=${BackupBucket}
+            BACKUP_PREFIX=${BackupPrefix}
+            ENVIRONMENT
+            cat > /usr/local/sbin/rust-rag-prepare <<'PREPARE'
+            #!/bin/bash
+            set -euo pipefail
+            umask 077
+            serial=$(printf '%s' "$VOLUME_ID" | tr -d '-')
+            for attempt in $(seq 1 120); do
+              device=$(lsblk -dnro NAME,TYPE,SERIAL | awk -v expected="$serial" '$2 == "disk" && $3 == expected {print "/dev/" $1}')
+              if test -b "$device"; then break; fi
+              sleep 2
+            done
+            test -b "$device"
+            test "$(lsblk -dn -o SERIAL "$device")" = "$serial"
+            test "$(lsblk -dn -o TYPE "$device")" = disk
+            filesystem=$(blkid -s TYPE -o value "$device" || true)
+            if test -z "$filesystem"; then
+              test "$(lsblk -nr -o NAME "$device" | wc -l)" -eq 1
+              test -z "$(wipefs --noheadings --output TYPE "$device")"
+              mkfs.ext4 -q "$device"
+            else
+              test "$filesystem" = ext4
+            fi
+            if mountpoint -q /var/lib/rust-rag; then
+              mounted=$(findmnt -n -o SOURCE --target /var/lib/rust-rag)
+              test "$(readlink -e "$mounted")" = "$device"
+            else
+              mount -o nodev,nosuid "$device" /var/lib/rust-rag
+            fi
+            chown 10001:10001 /var/lib/rust-rag
+            chmod 0700 /var/lib/rust-rag
+            install -d -m 0700 /run/rust-rag
+            install -d -m 0710 -o root -g 10001 /run/rust-rag/config
+            temporary=$(mktemp /run/rust-rag/profile.XXXXXX)
+            prepared=$(mktemp /run/rust-rag/prepared.XXXXXX)
+            trap 'rm -f "$temporary" "$prepared"' EXIT
+            fetch_secret() {
+              aws secretsmanager get-secret-value --secret-id "$1" --query SecretString --output text
+            }
+            fetch_secret "$PROFILE_SECRET" > "$temporary"
+            if ! jq -es '
+              if length != 1 or (.[0] | type) != "object" then error("profile") else .[0] end
+              | .state_dir = "/var/lib/rust-rag"
+              | .allow_proxy_http = true
+              | .policy = {kind: "s3", bucket: env.POLICY_BUCKET, key: env.POLICY_KEY}
+              | .backup = {kind: "s3", bucket: env.BACKUP_BUCKET, prefix: env.BACKUP_PREFIX}
+              | if (.sources | type) != "object" or (.sources | length) == 0 then error("sources") else . end
+              | .sources |= map_values(
+                  if .kind != "s3" then error("source kind") else . end
+                  | .prefix = (if has("prefix") then .prefix else env.SOURCE_PREFIX end)
+                  | if (.prefix | startswith(env.SOURCE_PREFIX)) then . else error("source scope") end
+                  | .bucket = env.SOURCE_BUCKET
+                )
+              | ([.sources[].prefix] | sort) as $prefixes
+              | if any(range(1; $prefixes | length); . as $i | $prefixes[$i] | startswith($prefixes[$i-1]))
+                then error("overlapping source scope") else . end
+              | .graph = (.graph // {mode: "typed"})
+              | if env.NEPTUNE_ENDPOINT != "" then
+                  .graph |= (.mode = "neptune" | .projection = {endpoint: env.NEPTUNE_ENDPOINT,
+                            key_file: "/run/rust-rag/config/neptune-key"})
+                elif .graph.mode == "neptune" then error("graph endpoint") else . end
+            ' "$temporary" > "$prepared" 2>/dev/null; then
+              echo 'The trusted service profile could not be prepared.' >&2
+              exit 1
+            fi
+            install -m 0400 -o 10001 -g 10001 "$prepared" /run/rust-rag/config/profile.json
+            for key_name in model neptune; do
+              if test "$key_name" = model; then secret="$MODEL_KEY_SECRET"; else secret="$NEPTUNE_KEY_SECRET"; fi
+              if test -n "$secret"; then
+                fetch_secret "$secret" > "$temporary"
+                install -m 0400 -o 10001 -g 10001 "$temporary" "/run/rust-rag/config/$key_name-key"
+              fi
+            done
+            if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+              export DOCKER_CONFIG=/run/rust-rag/docker-auth
+              install -d -m 0700 "$DOCKER_CONFIG"
+              trap 'rm -f "$temporary" "$prepared" "$DOCKER_CONFIG/config.json"; rmdir "$DOCKER_CONFIG" 2>/dev/null || true' EXIT
+              aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY" >/dev/null
+              docker pull "$IMAGE"
+              docker logout "$REGISTRY" >/dev/null
+            fi
+            PREPARE
+            chmod 0700 /usr/local/sbin/rust-rag-prepare
+            cat > /etc/systemd/system/rust-rag.service <<'UNIT'
+            [Unit]
+            Description=Rust RAG private retrieval service
+            Wants=network-online.target
+            Requires=docker.service
+            After=docker.service network-online.target
+            [Service]
+            EnvironmentFile=/etc/rust-rag/host.env
+            ExecStartPre=/usr/local/sbin/rust-rag-prepare
+            ExecStart=/usr/bin/docker run --rm --init --pull=never --name rust-rag --network=host --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,size=128m --cap-drop=ALL --security-opt=no-new-privileges --log-opt=max-size=10m --log-opt=max-file=3 --mount type=bind,src=/var/lib/rust-rag,dst=/var/lib/rust-rag --mount type=bind,src=/run/rust-rag/config,dst=/run/rust-rag/config,readonly --env AWS_REGION --env AWS_DEFAULT_REGION --env AWS_PAGER ${!IMAGE}
+            ExecStop=/usr/bin/docker stop --time 30 rust-rag
+            TimeoutStartSec=600
+            TimeoutStopSec=45
+            Restart=on-failure
+            RestartSec=15
+            [Install]
+            WantedBy=multi-user.target
+            UNIT
+            systemctl daemon-reload
+            systemctl enable --now rust-rag.service
+          - NeptuneUrl: !If [UseNeptune, !Sub 'https://${NeptuneCluster.Endpoint}:8182', '']
+            NeptuneSecret: !If [UseNeptune, !Ref NeptuneKeySecretArn, '']
+  EvidenceAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/sdf
+      InstanceId: !Ref Host
+      VolumeId: !Ref EvidenceVolume
+  Ingress:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internal
+      Type: application
+      SecurityGroups: [!GetAtt IngressSecurityGroup.GroupId]
+      Subnets: !Ref PrivateSubnets
+      LoadBalancerAttributes:
+        - Key: routing.http.drop_invalid_header_fields.enabled
+          Value: 'true'
+  Targets:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 8787
+      TargetType: instance
+      Targets: [{Id: !Ref Host, Port: 8787}]
+      HealthCheckPath: /health
+      Matcher: {HttpCode: '200'}
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Ingress
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates: [{CertificateArn: !Ref ListenerCertificate}]
+      DefaultActions: [{Type: forward, TargetGroupArn: !Ref Targets}]
+Outputs:
+  PrivateIngressDns:
+    Value: !GetAtt Ingress.DNSName
+  TargetGroupArn:
+    Value: !Ref Targets
+  EvidenceVolumeId:
+    Value: !Ref EvidenceVolume
+  HostId:
+    Value: !Ref Host
+  NeptuneEndpoint:
+    Condition: UseNeptune
+    Value: !Sub 'https://${NeptuneCluster.Endpoint}:8182'

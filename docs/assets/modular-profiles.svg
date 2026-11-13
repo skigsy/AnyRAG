@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="613" viewBox="0 0 1440 613" role="img" aria-labelledby="title desc">
+  <title id="title">A source for every result</title>
+  <desc id="desc">Rust personal search uses a local CLI and bundled SQLite. The same Rust engine adds typed relationships and optional shared access. Every profile returns passages and source locations. Models, storage and deployment are independent choices.</desc>
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#2b2429"/></pattern>
+    <linearGradient id="foundation" x2="1" y2="0"><stop stop-color="#2c1d20"/><stop offset="1" stop-color="#15181e"/></linearGradient>
+  </defs>
+  <style>
+    text { font-family: Arial, Helvetica, sans-serif; }
+    .title { font: 60px Georgia, "Times New Roman", serif; fill: #f5f0e8; }
+    .section { font-size: 30px; font-weight: 650; fill: #f5f0e8; }
+    .module { font-size: 25px; font-weight: 650; fill: #f5f0e8; }
+    .body { font-size: 21px; fill: #c9bdb4; }
+    .label { font-size: 16px; font-weight: 650; letter-spacing: 2.5px; fill: #f6c279; }
+    .blue { fill: #a0b4c3; }
+    .card { fill: #1b171b; stroke: #514446; }
+  </style>
+  <rect width="1440" height="613" rx="9" fill="#0d0e11"/>
+  <rect x="1" y="1" width="1438" height="611" rx="9" fill="none" stroke="#413438"/>
+  <rect x="55" y="176" width="1330" height="345" fill="url(#grid)"/>
+  <text x="56" y="50" class="label">ANY RAG  /  MODULAR BUILD</text>
+  <text x="53" y="113" class="title">One engine. Three starting points.</text>
+  <text x="56" y="153" class="body">Start with a local search or compose the profiles your workload needs.</text>
+  <path d="M1151 92L1208 52L1258 84L1308 43L1358 70L1383 49M1208 52L1308 43M1258 84L1358 70" fill="none" stroke="#514446"/>
+  <path d="M1208 52L1258 84L1308 43L1358 70" fill="none" stroke="#f6c279" stroke-width="1.8"/>
+  <g fill="#f6c279"><circle cx="1208" cy="52" r="4"/><circle cx="1258" cy="84" r="4"/><circle cx="1308" cy="43" r="4"/><circle cx="1358" cy="70" r="4"/></g>
+  <g fill="#a0b4c3"><circle cx="1151" cy="92" r="4"/><circle cx="1383" cy="49" r="4"/></g>
+  <rect x="56" y="197" width="1328" height="123" rx="10" fill="url(#foundation)" stroke="#a96450"/>
+  <text x="80" y="227" class="label">COMMON EVIDENCE CONTRACT</text>
+  <path d="M491 245V301M951 245V301" stroke="#4f4640"/>
+  <text x="80" y="273" class="module">Ingest and update</text>
+  <text x="80" y="301" class="body">Parse sources and track revisions</text>
+  <text x="540" y="273" class="module">Search and rank</text>
+  <text x="540" y="301" class="body">Keyword, vector, or hybrid</text>
+  <text x="1000" y="273" class="module">Return source evidence</text>
+  <text x="1000" y="301" class="body">Passages, locations, and citations</text>
+  <path d="M260 320V370M720 320V370M1180 320V370" stroke="#f6c279" stroke-width="2"/>
+  <g fill="#f6c279"><circle cx="260" cy="347" r="4"/><circle cx="720" cy="347" r="4"/><circle cx="1180" cy="347" r="4"/></g>
+  <rect x="56" y="370" width="408" height="153" rx="9" class="card"/>
+  <text x="80" y="400" class="label blue">01  /  FOLDER OR VAULT</text>
+  <text x="80" y="440" class="section">Personal search</text>
+  <text x="80" y="475" class="body">Rust CLI and bundled SQLite</text>
+  <text x="80" y="503" class="body">Search your files or Obsidian notes.</text>
+  <rect x="516" y="370" width="408" height="153" rx="9" class="card"/>
+  <text x="540" y="400" class="label blue">02  /  RELATIONSHIP QUESTIONS</text>
+  <text x="540" y="440" class="section">Typed Graph RAG</text>
+  <text x="540" y="475" class="body">Add extraction and typed edges</text>
+  <text x="540" y="503" class="body">Follow paths with a quote for each hop.</text>
+  <rect x="976" y="370" width="408" height="153" rx="9" class="card"/>
+  <text x="1000" y="400" class="label blue">03  /  SHARED KNOWLEDGE</text>
+  <text x="1000" y="440" class="section">Private team service</text>
+  <text x="1000" y="475" class="body">Add identity and collection grants</text>
+  <text x="1000" y="503" class="body">Serve search with your access policy.</text>
+  <path d="M56 550H1384" stroke="#514446"/>
+  <text x="56" y="584" class="label">CHOOSE INDEPENDENTLY</text>
+  <text x="338" y="584" class="body">Embedding and answer models  ·  Storage  ·  Graph backend  ·  Deployment</text>
+</svg>

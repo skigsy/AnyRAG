@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "state_dir": "/var/lib/rust-rag",
+  "allow_proxy_http": true,
+  "pdf": true,
+  "identity": {
+    "issuer": "https://identity.example.com/",
+    "audience": "rust-rag-api",
+    "jwks_url": "https://identity.example.com/oauth2/keys"
+  },
+  "policy": {"kind": "s3", "bucket": "example-policy", "key": "policy.json"},
+  "backup": {"kind": "s3", "bucket": "example-backups", "prefix": "snapshots/"},
+  "sources": {
+    "reference": {"kind": "s3", "bucket": "example-sources", "prefix": "documents/reference/"}
+  },
+  "embedding": {"provider": "hash", "model": "lexical-hash-v1", "dimensions": 256},
+  "endpoints": {},
+  "graph": {"mode": "off"}
+}

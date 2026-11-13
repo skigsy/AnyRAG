@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="330" viewBox="0 0 1200 330" role="img" aria-labelledby="title desc">
+  <title id="title">Any RAG</title>
+  <desc id="desc">A warm gold evidence trail goes from a source document through a relationship to a cited answer.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#171719"/><stop offset="1" stop-color="#0d0e11"/></linearGradient>
+    <linearGradient id="path"><stop stop-color="#d47253"/><stop offset="1" stop-color="#f6c279"/></linearGradient>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#6d6461" opacity=".25"/></pattern>
+  </defs>
+  <rect x="1" y="1" width="1198" height="328" rx="26" fill="url(#bg)" stroke="#353032" stroke-width="2"/>
+  <rect x="628" y="25" width="546" height="280" rx="16" fill="url(#grid)"/>
+  <path d="M628 55V274" stroke="#373236"/>
+  <g font-family="Arial,Helvetica,sans-serif">
+    <text x="60" y="73" fill="#f6c279" font-size="13" letter-spacing="3.1">AN OPEN SOURCE RAG FOUNDATION</text>
+    <text x="61" y="242" fill="#ccc0b7" font-size="21">From private notes to team search.</text>
+    <text x="61" y="274" fill="#afa29a" font-size="16">Keep the evidence behind every hop.</text>
+  </g>
+  <g font-family="Georgia,'Times New Roman',serif" font-weight="400" letter-spacing="-2.5">
+    <text x="55" y="184" fill="#f5f0e8" font-size="105">Any</text>
+    <text x="253" y="184" fill="none" stroke="#e7ac69" stroke-width="1.8" font-size="105">RAG</text>
+  </g>
+  <g fill="none" stroke="#514446" stroke-width="1.5">
+    <path d="M713 174L785 84L888 146L1001 73L1093 160L1030 245L888 146L789 246Z"/>
+    <path d="M785 84L789 246M1001 73L1030 245"/>
+  </g>
+  <path d="M713 174L888 146L1093 160" fill="none" stroke="#d47253" stroke-width="14" opacity=".14"/>
+  <path d="M713 174L888 146L1093 160" fill="none" stroke="url(#path)" stroke-width="4" stroke-linecap="round"/>
+  <g fill="#252022" stroke="#766061" stroke-width="2">
+    <circle cx="785" cy="84" r="7"/><circle cx="1001" cy="73" r="7"/><circle cx="789" cy="246" r="7"/><circle cx="1030" cy="245" r="7"/>
+  </g>
+  <g fill="#201a1a" stroke="url(#path)" stroke-width="2.5">
+    <rect x="693" y="154" width="40" height="40" rx="9"/><circle cx="888" cy="146" r="21"/><rect x="1073" y="140" width="40" height="40" rx="9"/>
+  </g>
+  <g fill="none" stroke="#f6c279" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M706 165h14v18h-14zM709 170h8m-8 4h8m-8 4h5"/>
+    <path d="M881 152l14-12m-11-1h11v10"/>
+    <path d="M1084 160l6 6 11-12"/>
+  </g>
+  <g font-family="Arial,Helvetica,sans-serif" fill="#c9b7aa" font-size="12" letter-spacing="2" text-anchor="middle">
+    <text x="713" y="220">SOURCE</text><text x="888" y="191">RELATIONSHIP</text><text x="1093" y="205">CITATION</text>
+  </g>
+</svg>

@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="772" viewBox="0 0 1280 772" role="img" aria-labelledby="title desc">
+<title id="title">Private AWS reference</title>
+<desc id="desc">Team clients reach a private HTTPS load balancer with OIDC tokens. A single EC2 host runs Any RAG with SQLite on encrypted EBS. Optional Neptune receives opaque topology. Separate versioned S3 stores hold sources, current access policy and backups. The host reads its image and secrets through scoped IAM.</desc>
+<defs>
+  <pattern id="points" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#2b2429"/></pattern>
+  <marker id="gold-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1 1L7 4L1 7" fill="none" stroke="#f6c279" stroke-width="1.35"/></marker>
+  <marker id="steel-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1 1L7 4L1 7" fill="none" stroke="#a0b4c3" stroke-width="1.35"/></marker>
+</defs>
+<rect x="0" y="0" width="1280" height="772" rx="0" fill="#0d0e11" stroke="none"/>
+<rect x="1" y="1" width="1278" height="770" rx="8" fill="none" stroke="#413438"/>
+<rect x="56" y="201" width="1168" height="466" rx="0" fill="url(#points)" stroke="none"/>
+<text x="60" y="55" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#f6c279">ANY RAG  /  02  /  DEPLOYMENT ARCHITECTURE</text>
+<text x="58" y="126" font-family="Georgia, Times New Roman, serif" font-size="57" font-weight="400" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Private AWS reference</text>
+<text x="60" y="169" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">One host, independent policy and backups, and an opt-in graph projection.</text>
+<path d="M60 190H1220" fill="none" stroke="#343137" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1000 88L1050 55L1091 87L1135 44L1185 67L1209 45M1050 55L1135 44M1091 87L1185 67" fill="none" stroke="#514446" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1050 55L1091 87L1135 44L1185 67" fill="none" stroke="#f6c279" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="1000" cy="88" r="3.5" fill="#a0b4c3"/>
+<circle cx="1050" cy="55" r="3.5" fill="#f6c279"/>
+<circle cx="1091" cy="87" r="3.5" fill="#f6c279"/>
+<circle cx="1135" cy="44" r="3.5" fill="#f6c279"/>
+<circle cx="1185" cy="67" r="3.5" fill="#f6c279"/>
+<circle cx="1209" cy="45" r="3.5" fill="#a0b4c3"/>
+<rect x="60" y="221" width="366" height="60" rx="7" fill="#12151a" stroke="#3b4853"/>
+<text x="80" y="258" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Team clients</text>
+<text x="226" y="258" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="400" letter-spacing="0" text-anchor="start" fill="#a0b4c3">OIDC access token</text>
+<path d="M202 281V368" fill="none" stroke="#f6c279" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#gold-arrow)"/>
+<rect x="60" y="317" width="852" height="349" rx="12" fill="#0e1116" stroke="#535059" stroke-dasharray="7 6"/>
+<path d="M202 317V368" fill="none" stroke="#f6c279" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#gold-arrow)"/>
+<text x="81" y="344" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#a0b4c3">PRIVATE VPC</text>
+<text x="948" y="340" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#a0b4c3">AWS SERVICES</text>
+<rect x="82" y="370" width="265" height="112" rx="9" fill="#1b171b" stroke="#514446"/>
+<text x="102" y="397" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#a0b4c3">INGRESS</text>
+<text x="102" y="432" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Private HTTPS ALB</text>
+<text x="102" y="461" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">TLS via ACM</text>
+<path d="M347 426H418" fill="none" stroke="#f6c279" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#gold-arrow)"/>
+<rect x="420" y="370" width="467" height="112" rx="9" fill="#1b171b" stroke="#a96450"/>
+<text x="440" y="397" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#edcf97">COMPUTE</text>
+<text x="440" y="432" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Any RAG on EC2</text>
+<text x="440" y="461" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Shared API, scoped IAM and private ingress</text>
+<path d="M652 482V524" fill="none" stroke="#f6c279" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#gold-arrow)"/>
+<rect x="420" y="526" width="467" height="109" rx="9" fill="#1b171b" stroke="#a96450"/>
+<text x="440" y="553" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#edcf97">AUTHORITATIVE</text>
+<text x="440" y="588" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">SQLite on encrypted EBS</text>
+<text x="440" y="617" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Evidence, search indexes and graph assertions</text>
+<path d="M420 453H384V577H348" fill="none" stroke="#a0b4c3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#steel-arrow)" stroke-dasharray="5 5"/>
+<rect x="82" y="526" width="265" height="109" rx="9" fill="#1b171b" stroke="#5c6877" stroke-dasharray="5 5"/>
+<text x="102" y="553" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#a0b4c3">OPTIONAL</text>
+<text x="102" y="588" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Neptune</text>
+<text x="102" y="617" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Opaque topology only</text>
+<path d="M887 426H921V429H947" fill="none" stroke="#f6c279" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#gold-arrow)"/>
+<path d="M921 429V566H947" fill="none" stroke="#a0b4c3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#steel-arrow)" stroke-dasharray="5 5"/>
+<rect x="948" y="370" width="272" height="120" rx="9" fill="#1b171b" stroke="#514446"/>
+<text x="966" y="397" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#edcf97">VERSIONED STORAGE</text>
+<text x="966" y="430" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">S3 buckets</text>
+<text x="966" y="460" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Sources, policy and backups</text>
+<rect x="948" y="526" width="272" height="109" rx="9" fill="#1b171b" stroke="#514446"/>
+<text x="966" y="553" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#a0b4c3">RUNTIME INPUTS</text>
+<text x="966" y="584" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Image and secrets</text>
+<text x="966" y="612" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">ECR and Secrets Manager</text>
+<path d="M60 699H1220" fill="none" stroke="#343137" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="60" y="735" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#f6c279">CLOUDFORMATION</text>
+<text x="263" y="735" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="400" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Two stacks</text>
+<text x="1220" y="735" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="400" letter-spacing="0" text-anchor="end" fill="#a0b4c3">Live cloud qualification pending</text>
+</svg>

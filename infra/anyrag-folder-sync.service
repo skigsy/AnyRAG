@@ -1,0 +1,7 @@
+[Unit]
+Description=Refresh the Any RAG personal index
+
+[Service]
+Type=oneshot
+ExecStart="%h/.local/bin/rust-rag" --state-dir "%h/.local/state/anyrag/index" ingest "%h/Documents/AnyRAG Sources" --sync --require-complete
+StandardOutput=null

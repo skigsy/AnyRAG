@@ -1,0 +1,8 @@
+*
+!Dockerfile
+!requirements-linux-amd64.lock
+!serve.py
+!worker.py
+!table_geometry.rs
+!table_lanes.rs
+!table_rules.rs

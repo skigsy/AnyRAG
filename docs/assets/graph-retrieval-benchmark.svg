@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="300" viewBox="0 0 800 300" role="img" aria-labelledby="title desc">
+  <title id="title">When typed graph retrieval found both passages</title>
+  <desc id="desc">In the frozen synthetic graph replay, hybrid retrieval found both required passages in its top five for 10 of 24 two-hop questions. Adding graph traversal raised this to 23 of 24 on each of three fresh Windows indexes.</desc>
+  <rect x="1" y="1" width="798" height="298" rx="20" fill="#17171b" stroke="#57505a" stroke-width="2"/>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="28" y="47" font-family="Georgia, serif" fill="#f7f0f5" font-size="33">Did search find both passages?</text>
+    <text x="30" y="79" fill="#c6c0cc" font-size="19">Both required passages in the top five · 24 two-hop questions</text>
+    <g fill="#34313a">
+      <rect x="233" y="112" width="432" height="28" rx="5"/>
+      <rect x="233" y="164" width="432" height="28" rx="5"/>
+    </g>
+    <rect x="233" y="112" width="180" height="28" rx="5" fill="#a6a8c5"/>
+    <rect x="233" y="164" width="414" height="28" rx="5" fill="#f7c781"/>
+    <g fill="#f1ebf2" font-size="21" font-weight="700">
+      <text x="30" y="133">Hybrid</text>
+      <text x="30" y="185">Hybrid + graph</text>
+      <text x="770" y="133" text-anchor="end">10 / 24</text>
+      <text x="770" y="185" text-anchor="end">23 / 24</text>
+    </g>
+    <line x1="30" y1="218" x2="770" y2="218" stroke="#504954"/>
+    <text x="30" y="248" fill="#c6c0cc" font-size="18">Same result on three fresh Windows indexes.</text>
+    <text x="30" y="274" fill="#c6c0cc" font-size="18">Synthetic mixed relationship fixture · pinned BGE and Qwen3</text>
+  </g>
+</svg>

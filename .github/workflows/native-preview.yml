@@ -1,0 +1,82 @@
+name: Qualify Any RAG Windows standalone build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.cargo/config.toml'
+      - '.github/workflows/native-preview.yml'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'LICENSE'
+      - 'rust-toolchain.toml'
+      - 'crates/rust-rag/**'
+      - 'scripts/build_native_release.py'
+      - 'scripts/rehearse_operator.py'
+      - 'scripts/rehearse_shared.py'
+      - 'scripts/test_native_windows.ps1'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-standalone:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Set up the build and test interpreter
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13'
+      - name: Assemble the reproducible candidate
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$installation) { throw 'MSVC build tools unavailable.' }
+          Import-Module (Join-Path $installation 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+          python scripts/build_native_release.py --output-dir "${{ runner.temp }}/rust-rag-candidate"
+      - name: Verify and extract the exact archive
+        shell: pwsh
+        run: |
+          $candidate = Join-Path $env:RUNNER_TEMP 'rust-rag-candidate'
+          $extracted = Join-Path $env:RUNNER_TEMP 'Évidence Preview'
+          $archives = @(Get-ChildItem -LiteralPath $candidate -Filter 'rust-rag-*-windows-x64.zip' -File)
+          if ($archives.Count -ne 1) { throw 'Expected exactly one Windows archive.' }
+          foreach ($line in Get-Content -LiteralPath (Join-Path $candidate 'SHA256SUMS')) {
+            if ($line -notmatch '^([a-fA-F0-9]{64})  ([a-zA-Z0-9.-]+)$') {
+              throw 'Unexpected checksum manifest entry.'
+            }
+            if ((Get-FileHash -LiteralPath (Join-Path $candidate $Matches[2])).Hash -ne $Matches[1]) {
+              throw 'Candidate checksum failed.'
+            }
+          }
+          Expand-Archive -LiteralPath $archives[0].FullName -DestinationPath $extracted
+          $binary = Join-Path $extracted 'rust-rag.exe'
+          if ((Get-FileHash -LiteralPath $binary).Hash -ne (Get-FileHash -LiteralPath (Join-Path $candidate 'rust-rag.exe')).Hash) {
+            throw 'Extracted executable differs from the reproducible build.'
+          }
+          "RUST_RAG_CANDIDATE=$binary" >> $env:GITHUB_ENV
+      - name: Check the extracted executable against synthetic fixtures and Cloud Files
+        run: python crates/rust-rag/check.py "$env:RUST_RAG_CANDIDATE" --check-cloud-placeholder
+      - name: Run the personal quickstart on the extracted Windows archive
+        run: |
+          python -B scripts/rehearse_operator.py --personal-only --binary "$env:RUST_RAG_CANDIDATE" `
+            --receipt (Join-Path $env:RUNNER_TEMP 'windows-personal-rehearsal.json')
+      - name: Run the extracted executable in an isolated Windows base image
+        shell: pwsh
+        run: |
+          # A hosted runner may boot with the installed Docker service stopped.
+
+          $dockerService = Get-Service -Name docker
+          if ($dockerService.Status -ne 'Running') {
+            Start-Service -Name docker
+            $dockerService.WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+          }
+          ./scripts/test_native_windows.ps1 -Executable "$env:RUST_RAG_CANDIDATE"

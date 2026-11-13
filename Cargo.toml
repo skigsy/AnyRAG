@@ -1,0 +1,6 @@
+[workspace]
+members = ["crates/rust-rag"]
+resolver = "3"
+
+[profile.release]
+strip = true

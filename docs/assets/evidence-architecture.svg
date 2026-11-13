@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="704" viewBox="0 0 1280 704" role="img" aria-labelledby="title desc">
+<title id="title">One evidence pipeline</title>
+<desc id="desc">Documents flow into a shared evidence core. Questions use the same retrieval engine. Shared collection grants scope ranking and traversal and are rechecked before response or model input. Outputs include source passages, optional graph paths and optional cited answers.</desc>
+<defs>
+  <pattern id="points" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#2b2429"/></pattern>
+  <marker id="gold-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1 1L7 4L1 7" fill="none" stroke="#f6c279" stroke-width="1.35"/></marker>
+  <marker id="steel-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1 1L7 4L1 7" fill="none" stroke="#a0b4c3" stroke-width="1.35"/></marker>
+</defs>
+<rect x="0" y="0" width="1280" height="704" rx="0" fill="#0d0e11" stroke="none"/>
+<rect x="1" y="1" width="1278" height="702" rx="8" fill="none" stroke="#413438"/>
+<rect x="56" y="201" width="1168" height="398" rx="0" fill="url(#points)" stroke="none"/>
+<text x="60" y="55" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#f6c279">ANY RAG  /  01  /  PRODUCT ARCHITECTURE</text>
+<text x="58" y="126" font-family="Georgia, Times New Roman, serif" font-size="57" font-weight="400" letter-spacing="0" text-anchor="start" fill="#f5f0e8">One evidence pipeline</text>
+<text x="60" y="169" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">The same foundation serves a local vault and a private team.</text>
+<path d="M60 190H1220" fill="none" stroke="#343137" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1000 88L1050 55L1091 87L1135 44L1185 67L1209 45M1050 55L1135 44M1091 87L1185 67" fill="none" stroke="#514446" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1050 55L1091 87L1135 44L1185 67" fill="none" stroke="#f6c279" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="1000" cy="88" r="3.5" fill="#a0b4c3"/>
+<circle cx="1050" cy="55" r="3.5" fill="#f6c279"/>
+<circle cx="1091" cy="87" r="3.5" fill="#f6c279"/>
+<circle cx="1135" cy="44" r="3.5" fill="#f6c279"/>
+<circle cx="1185" cy="67" r="3.5" fill="#f6c279"/>
+<circle cx="1209" cy="45" r="3.5" fill="#a0b4c3"/>
+<text x="60" y="232" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#a0b4c3">WHAT GOES IN</text>
+<text x="435" y="232" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#f6c279">WHAT YOU REUSE</text>
+<text x="912" y="232" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#a0b4c3">WHAT COMES BACK</text>
+<rect x="60" y="256" width="291" height="129" rx="9" fill="#1b171b" stroke="#514446"/>
+<text x="80" y="283" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#a0b4c3">01  /  SOURCES</text>
+<text x="80" y="318" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Notes and files</text>
+<text x="80" y="347" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Folders, vaults, connectors</text>
+<rect x="60" y="426" width="291" height="129" rx="9" fill="#1b171b" stroke="#514446"/>
+<text x="80" y="453" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#a0b4c3">02  /  QUESTION</text>
+<text x="80" y="488" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">CLI or shared API</text>
+<text x="80" y="517" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Ask in plain language</text>
+<path d="M351 321H435" fill="none" stroke="#f6c279" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#gold-arrow)"/>
+<path d="M351 491H435" fill="none" stroke="#f6c279" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#gold-arrow)"/>
+<rect x="436" y="256" width="391" height="299" rx="11" fill="#171619" stroke="#a96450"/>
+<rect x="458" y="276" width="5" height="257" rx="2" fill="#f6c279" stroke="none"/>
+<text x="485" y="304" font-family="Georgia, Times New Roman, serif" font-size="36" font-weight="400" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Evidence core</text>
+<path d="M485 326H800" fill="none" stroke="#454039" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="486" y="360" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="650" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Parse &amp; index</text>
+<text x="486" y="387" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Keep the source location and revision.</text>
+<text x="486" y="427" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="650" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Retrieve</text>
+<text x="486" y="454" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Keyword, vector or hybrid ranking.</text>
+<text x="486" y="494" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="650" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Follow relationships</text>
+<text x="486" y="521" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Traverse optional source-backed edges.</text>
+<path d="M827 321H912" fill="none" stroke="#f6c279" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#gold-arrow)"/>
+<path d="M827 413H912" fill="none" stroke="#a0b4c3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#steel-arrow)" stroke-dasharray="5 5"/>
+<path d="M827 509H912" fill="none" stroke="#a0b4c3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#steel-arrow)" stroke-dasharray="5 5"/>
+<rect x="913" y="256" width="307" height="91" rx="9" fill="#1b171b" stroke="#514446"/>
+<text x="933" y="283" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#edcf97">EVIDENCE</text>
+<text x="933" y="312" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Source passages</text>
+<text x="933" y="337" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Quote, file and location</text>
+<rect x="913" y="360" width="307" height="91" rx="9" fill="#1b171b" stroke="#514446"/>
+<text x="933" y="387" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#a0b4c3">OPTIONAL GRAPH</text>
+<text x="933" y="416" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Relationship paths</text>
+<text x="933" y="441" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Evidence for each hop</text>
+<rect x="913" y="464" width="307" height="91" rx="9" fill="#1b171b" stroke="#514446"/>
+<text x="933" y="491" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#a0b4c3">OPTIONAL MODEL</text>
+<text x="933" y="520" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Cited answer</text>
+<text x="933" y="545" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Approved model endpoint</text>
+<rect x="60" y="594" width="1160" height="63" rx="7" fill="#12151a" stroke="#3b4853"/>
+<text x="83" y="632" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#a0b4c3">SHARED ACCESS</text>
+<text x="287" y="632" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="400" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Scope before ranking and traversal. Recheck before output or model input.</text>
+</svg>

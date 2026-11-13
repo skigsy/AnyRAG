@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1258" viewBox="0 0 1440 1258" role="img" aria-labelledby="title desc">
+<title id="title">Full Graph RAG pipeline</title>
+<desc id="desc">Indexing ingests sources, parses and chunks text with anchors, embeds text and extracts typed assertions, then publishes active evidence to SQLite. A request verifies shared access, retrieves lexical or vector seeds, walks permitted edges, and resolves active source passages. Scope is checked again before model processing and response. A custom reranker can refine candidates. Evidence can be returned directly or used to generate a cited answer. Neptune is an optional opaque projection. pgvector and permission-scoped community reports require integrations.</desc>
+<defs>
+  <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#2b2429"/></pattern>
+  <linearGradient id="band" x2="1" y2="0"><stop stop-color="#2c1d20"/><stop offset="1" stop-color="#12161b"/></linearGradient>
+  <marker id="goldArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1 1L7 4L1 7" fill="none" stroke="#f6c279" stroke-width="1.3"/></marker>
+  <marker id="silverArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1 1L7 4L1 7" fill="none" stroke="#a0b4c3" stroke-width="1.3"/></marker>
+</defs>
+<style>
+  text { font-family: Arial, Helvetica, sans-serif; }
+  .title { font: 62px Georgia, "Times New Roman", serif; fill: #f5f0e8; }
+  .subtitle { font-size: 24px; fill: #c0b4ae; }
+  .label { font-size: 15px; font-weight: 650; letter-spacing: 2px; fill: #f6c279; }
+  .silver { fill: #a0b4c3; }
+  .cardTitle { font-size: 25px; font-weight: 650; fill: #f5f0e8; }
+  .detail { font-size: 19px; fill: #c0b4ae; }
+  .nodeTitle { font-size: 22px; font-weight: 650; fill: #f5f0e8; }
+  .card { fill: #1b171b; stroke: #514446; }
+  .extension { stroke: #667684; stroke-dasharray: 6 5; }
+  .arrow, .optionalArrow, .wire { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .arrow { stroke: #f6c279; marker-end: url(#goldArrow); }
+  .optionalArrow { stroke: #a0b4c3; stroke-dasharray: 5 5; marker-end: url(#silverArrow); }
+  .wire { stroke: #514446; }
+</style>
+<rect width="1440" height="1258" fill="#0d0e11"/>
+<rect x="1" y="1" width="1438" height="1256" rx="9" fill="none" stroke="#413438"/>
+<rect x="52" y="191" width="1336" height="954" fill="url(#grid)"/>
+<text x="56" y="52" class="label">ANY RAG  /  03  /  END-TO-END ARCHITECTURE</text>
+<text x="54" y="123" class="title">Full Graph RAG pipeline</text>
+<text x="56" y="164" class="subtitle">From source revisions to evidence for every hop.</text>
+<path d="M56 185H1384" class="wire"/>
+<path d="M1151 92L1208 52L1258 84L1308 43L1358 70L1383 49M1208 52L1308 43M1258 84L1358 70" class="wire"/>
+<path d="M1208 52L1258 84L1308 43L1358 70" fill="none" stroke="#f6c279" stroke-width="1.8"/>
+<circle cx="1151" cy="92" r="4" fill="#a0b4c3"/>
+<circle cx="1208" cy="52" r="4" fill="#f6c279"/>
+<circle cx="1258" cy="84" r="4" fill="#f6c279"/>
+<circle cx="1308" cy="43" r="4" fill="#f6c279"/>
+<circle cx="1358" cy="70" r="4" fill="#f6c279"/>
+<circle cx="1383" cy="49" r="4" fill="#a0b4c3"/>
+<text x="56" y="227" class="label">01  /  INDEX THE COLLECTION</text>
+<text x="1384" y="227" text-anchor="end" class="label silver">HOSTED ENRICHMENT CAN SEND TEXT OFF-HOST</text>
+<rect x="56" y="248" width="296" height="140" rx="9" class="card"/>
+<text x="74" y="277" class="label">INPUT</text>
+<text x="74" y="313" class="cardTitle">Ingest sources</text>
+<text x="74" y="343" class="detail">Files, vaults, or S3 reference</text>
+<text x="74" y="368" class="detail">Identity, revision, collection</text>
+<rect x="400" y="248" width="296" height="140" rx="9" class="card"/>
+<text x="418" y="277" class="label">PREPARE</text>
+<text x="418" y="313" class="cardTitle">Parse and chunk</text>
+<text x="418" y="343" class="detail">Text, Markdown, PDF text</text>
+<text x="418" y="368" class="detail">Keep literal source anchors</text>
+<rect x="744" y="248" width="296" height="140" rx="9" class="card"/>
+<text x="762" y="277" class="label">ENRICH</text>
+<text x="762" y="313" class="cardTitle">Embed and extract</text>
+<text x="762" y="343" class="detail">Optional embedding model</text>
+<text x="762" y="368" class="detail">Typed edges with exact quotes</text>
+<rect x="1088" y="248" width="296" height="140" rx="9" class="card"/>
+<text x="1106" y="277" class="label">COMMIT</text>
+<text x="1106" y="313" class="cardTitle">Publish revision</text>
+<text x="1106" y="343" class="detail">Activate new text and edges</text>
+<text x="1106" y="368" class="detail">Retire superseded evidence</text>
+<path d="M352 318H396" class="arrow"/>
+<path d="M696 318H740" class="arrow"/>
+<path d="M1040 318H1084" class="arrow"/>
+<path d="M1236 388V432" class="arrow"/>
+<rect x="56" y="436" width="1328" height="122" rx="10" fill="url(#band)" stroke="#766448"/>
+<text x="78" y="464" class="label">AUTHORITATIVE  /  SQLITE</text>
+<text x="78" y="503" class="cardTitle">Active passages, vectors, and graph</text>
+<text x="78" y="533" class="detail">FTS5 for keywords · vectors scored in the app</text>
+<rect x="566" y="454" width="242" height="86" rx="6" class="card extension"/>
+<text x="578" y="476" class="label silver">OPTIONAL PROJECTION</text>
+<text x="578" y="504" class="nodeTitle">Neptune Database</text>
+<text x="578" y="529" class="detail">Opaque topology</text>
+<rect x="846" y="454" width="242" height="86" rx="6" class="card extension"/>
+<text x="858" y="476" class="label silver">CUSTOM VECTOR INDEX</text>
+<text x="858" y="504" class="nodeTitle">pgvector</text>
+<text x="858" y="529" class="detail">Derived similarity index</text>
+<rect x="1126" y="454" width="242" height="86" rx="6" class="card extension"/>
+<text x="1138" y="476" class="label silver">CUSTOM SUMMARIES</text>
+<text x="1138" y="504" class="nodeTitle">Community reports</text>
+<text x="1138" y="529" class="detail">Build per permission scope</text>
+<text x="56" y="606" class="label">02  /  RETRIEVE WITH CURRENT ACCESS</text>
+<path d="M548 558V622" class="arrow"/>
+<path d="M892 558V622" class="arrow"/>
+<rect x="56" y="626" width="296" height="140" rx="9" class="card"/>
+<text x="74" y="655" class="label">01  /  SCOPE</text>
+<text x="74" y="691" class="cardTitle">Check identity</text>
+<text x="74" y="721" class="detail">Question and allowed scope</text>
+<text x="74" y="746" class="detail">Current grants in shared use</text>
+<rect x="400" y="626" width="296" height="140" rx="9" class="card"/>
+<text x="418" y="655" class="label">02  /  SEED</text>
+<text x="418" y="691" class="cardTitle">Retrieve candidates</text>
+<text x="418" y="721" class="detail">Keyword, vector, or hybrid</text>
+<text x="418" y="746" class="detail">Fuse rank lists with RRF</text>
+<rect x="744" y="626" width="296" height="140" rx="9" class="card"/>
+<text x="762" y="655" class="label">03  /  TRAVERSE</text>
+<text x="762" y="691" class="cardTitle">Follow typed edges</text>
+<text x="762" y="721" class="detail">Bound hops and fan-out</text>
+<text x="762" y="746" class="detail">Check scope on every hop</text>
+<rect x="1088" y="626" width="296" height="140" rx="9" class="card"/>
+<text x="1106" y="655" class="label">04  /  RESOLVE</text>
+<text x="1106" y="691" class="cardTitle">Read source passages</text>
+<text x="1106" y="721" class="detail">Verify active edge and quote</text>
+<text x="1106" y="746" class="detail">Show partial coverage</text>
+<path d="M352 696H396" class="arrow"/>
+<path d="M696 696H740" class="arrow"/>
+<path d="M1040 696H1084" class="arrow"/>
+<path d="M1236 766V794H204V824" class="arrow"/>
+<rect x="56" y="828" width="296" height="140" rx="9" class="card"/>
+<text x="74" y="857" class="label">05  /  GUARD</text>
+<text x="74" y="893" class="cardTitle">Recheck scope</text>
+<text x="74" y="923" class="detail">Check grants and revisions</text>
+<text x="74" y="948" class="detail">Before model input</text>
+<rect x="400" y="828" width="296" height="140" rx="9" class="card extension"/>
+<text x="418" y="857" class="label silver">06  /  CUSTOM · EGRESS</text>
+<text x="418" y="893" class="cardTitle">Rerank candidates</text>
+<text x="418" y="923" class="detail">Optional relevance model</text>
+<text x="418" y="948" class="detail">Use authorized passages</text>
+<rect x="744" y="828" width="296" height="140" rx="9" class="card"/>
+<text x="762" y="857" class="label">07  /  OPTIONAL · EGRESS</text>
+<text x="762" y="893" class="cardTitle">Draft an answer</text>
+<text x="762" y="923" class="detail">Recheck scope before call</text>
+<text x="762" y="948" class="detail">Treat passages as data</text>
+<rect x="1088" y="828" width="296" height="140" rx="9" class="card"/>
+<text x="1106" y="857" class="label">08  /  RETURN</text>
+<text x="1106" y="893" class="cardTitle">Verify and return</text>
+<text x="1106" y="923" class="detail">Recheck access and cite</text>
+<text x="1106" y="948" class="detail">Evidence, answer, or abstain</text>
+<path d="M352 910H394" class="optionalArrow"/>
+<path d="M696 910H738" class="optionalArrow"/>
+<path d="M1040 910H1084" class="optionalArrow"/>
+<path d="M204 968V998H1236V972" class="arrow"/>
+<rect x="500" y="986" width="440" height="24" fill="#0d0e11"/>
+<text x="720" y="1004" text-anchor="middle" class="label">RETURN EVIDENCE DIRECTLY</text>
+<text x="56" y="1055" class="label">03  /  TRACE A SYNTHETIC RESULT</text>
+<rect x="56" y="1080" width="280" height="58" rx="9" class="card"/>
+<text x="76" y="1117" class="nodeTitle">CedarPump</text>
+<rect x="580" y="1080" width="280" height="58" rx="9" class="card"/>
+<text x="600" y="1117" class="nodeTitle">RelayKit</text>
+<rect x="1104" y="1080" width="280" height="58" rx="9" class="card"/>
+<text x="1124" y="1117" class="nodeTitle">SpareBracket</text>
+<path d="M336 1114H574" class="arrow"/>
+<path d="M860 1114H1098" class="arrow"/>
+<text x="360" y="1101" class="detail">requires · quote 01</text>
+<text x="884" y="1101" class="detail">requires · quote 02</text>
+<path d="M56 1170H1384" class="wire"/>
+<text x="56" y="1208" class="label">LIFECYCLE</text>
+<text x="192" y="1209" class="detail">Reconcile deletes, invalidate stale indexes, and verify current grants after restore.</text>
+<text x="1010" y="1208" class="label silver">DASHED  /  OPTIONAL OR CUSTOM</text>
+</svg>

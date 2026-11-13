@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="385" viewBox="0 0 800 385" role="img" aria-labelledby="title desc">
+  <title id="title">Any RAG source review example</title>
+  <desc id="desc">Any RAG indexes the note, skips an unsupported CSV, reports an invalid text file, and returns the locker 14 quote. After the note changes to locker 27 and sync commits, the old citation is unavailable.</desc>
+  <rect x="1" y="1" width="798" height="383" rx="20" fill="#17171b" stroke="#57505a" stroke-width="2"/>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="28" y="43" fill="#f7c781" font-family="Georgia, serif" font-size="29">Any RAG</text>
+    <text x="772" y="42" text-anchor="end" fill="#c6c0cc" font-size="17" letter-spacing="1.4">1.0.0 · SYNTHETIC REPLAY</text>
+    <line x1="28" y1="61" x2="772" y2="61" stroke="#504954"/>
+    <text x="28" y="91" fill="#f7c781" font-size="16" font-weight="700" letter-spacing="1.8">01  REVIEW THE SOURCES</text>
+    <g font-family="Consolas, monospace" font-size="21">
+      <text x="28" y="121" fill="#f0ebf2">workshop.md</text>
+      <text x="258" y="121" fill="#f0ebf2">stock.csv</text>
+      <text x="510" y="121" fill="#f0ebf2">broken.txt</text>
+    </g>
+    <text x="28" y="147" fill="#a5dbb7" font-size="18">Indexed</text>
+    <text x="258" y="147" fill="#ead2a6" font-size="18">Skipped · unsupported</text>
+    <text x="510" y="147" fill="#f5b6a5" font-size="18">Failed · invalid text</text>
+    <rect x="24" y="165" width="752" height="126" rx="12" fill="#24222a" stroke="#534b57"/>
+    <text x="43" y="194" fill="#f7c781" font-size="16" font-weight="700" letter-spacing="1.5">02  WHY THIS PASSAGE?</text>
+    <text x="43" y="222" fill="#c6c0cc" font-size="18">Rank 1 · keyword match · workshop.md, characters 0–52</text>
+    <text x="43" y="258" fill="#f7f0f5" font-family="Georgia, serif" font-size="26">“After hours, the workshop spare key is in locker 14.”</text>
+    <text x="28" y="325" fill="#f7c781" font-size="16" font-weight="700" letter-spacing="1.5">03  REOPEN AFTER AN EDIT</text>
+    <text x="28" y="354" fill="#eee7ef" font-size="20">After sync, the saved locker 14 citation stops resolving.</text>
+  </g>
+</svg>

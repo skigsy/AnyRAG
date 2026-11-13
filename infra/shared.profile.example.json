@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "state_dir": "/var/lib/rust-rag",
+  "identity": {
+    "issuer": "https://identity.example.com/",
+    "audience": "rust-rag-api",
+    "jwks_url": "https://identity.example.com/oauth2/keys"
+  },
+  "policy": {
+    "kind": "file",
+    "directory": "/run/rust-rag/policy"
+  },
+  "backup": {
+    "kind": "file",
+    "directory": "/var/backups/rust-rag"
+  },
+  "sources": {
+    "reference": {
+      "kind": "folder",
+      "root": "/srv/rust-rag/reference"
+    }
+  },
+  "endpoints": {},
+  "graph": {
+    "mode": "off"
+  }
+}

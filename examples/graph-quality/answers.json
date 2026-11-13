@@ -1,0 +1,591 @@
+{
+  "schema_version": 1,
+  "questions": [
+    {
+      "id": "K01",
+      "evidence": [
+        {
+          "file": "corpus/mount-00.md",
+          "quote": "GA-2034 uses WQ-8578."
+        },
+        {
+          "file": "corpus/crossref-00.md",
+          "quote": "WQ-8578 requires KS-3172."
+        }
+      ],
+      "required_facts": [
+        [
+          "KS-3172"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "K02",
+      "evidence": [
+        {
+          "file": "corpus/mount-05.md",
+          "quote": "GA-9164 uses WQ-7945."
+        },
+        {
+          "file": "corpus/crossref-07.md",
+          "quote": "WQ-7945 requires KS-5815."
+        }
+      ],
+      "required_facts": [
+        [
+          "KS-5815"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "K03",
+      "evidence": [
+        {
+          "file": "corpus/mount-10.md",
+          "quote": "GA-9630 uses WQ-1466."
+        },
+        {
+          "file": "corpus/crossref-14.md",
+          "quote": "WQ-1466 requires KS-4752."
+        }
+      ],
+      "required_facts": [
+        [
+          "KS-4752"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "K04",
+      "evidence": [
+        {
+          "file": "corpus/mount-15.md",
+          "quote": "GA-5405 uses WQ-4505."
+        },
+        {
+          "file": "corpus/crossref-04.md",
+          "quote": "WQ-4505 requires KS-1723."
+        }
+      ],
+      "required_facts": [
+        [
+          "KS-1723"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "K05",
+      "evidence": [
+        {
+          "file": "corpus/mount-03.md",
+          "quote": "DT-8193 depends on MG-6673."
+        },
+        {
+          "file": "corpus/crossref-11.md",
+          "quote": "MG-6673 uses TX-6444."
+        }
+      ],
+      "required_facts": [
+        [
+          "TX-6444"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "K06",
+      "evidence": [
+        {
+          "file": "corpus/mount-08.md",
+          "quote": "DT-1696 depends on MG-2825."
+        },
+        {
+          "file": "corpus/crossref-01.md",
+          "quote": "MG-2825 uses TX-5725."
+        }
+      ],
+      "required_facts": [
+        [
+          "TX-5725"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "K07",
+      "evidence": [
+        {
+          "file": "corpus/mount-13.md",
+          "quote": "DT-6661 depends on MG-4555."
+        },
+        {
+          "file": "corpus/crossref-08.md",
+          "quote": "MG-4555 uses TX-2831."
+        }
+      ],
+      "required_facts": [
+        [
+          "TX-2831"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "K08",
+      "evidence": [
+        {
+          "file": "corpus/mount-01.md",
+          "quote": "DT-3421 depends on MG-4401."
+        },
+        {
+          "file": "corpus/crossref-15.md",
+          "quote": "MG-4401 uses TX-4549."
+        }
+      ],
+      "required_facts": [
+        [
+          "TX-4549"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "K09",
+      "evidence": [
+        {
+          "file": "corpus/mount-06.md",
+          "quote": "KC-1820 is part of AS-9183."
+        },
+        {
+          "file": "corpus/crossref-05.md",
+          "quote": "AS-9183 is owned by HQ-5503."
+        }
+      ],
+      "required_facts": [
+        [
+          "HQ-5503"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "K10",
+      "evidence": [
+        {
+          "file": "corpus/mount-11.md",
+          "quote": "KC-7377 is part of AS-8012."
+        },
+        {
+          "file": "corpus/crossref-12.md",
+          "quote": "AS-8012 is owned by HQ-8394."
+        }
+      ],
+      "required_facts": [
+        [
+          "HQ-8394"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "K11",
+      "evidence": [
+        {
+          "file": "corpus/mount-16.md",
+          "quote": "KC-6267 is part of AS-6723."
+        },
+        {
+          "file": "corpus/crossref-02.md",
+          "quote": "AS-6723 is owned by HQ-3230."
+        }
+      ],
+      "required_facts": [
+        [
+          "HQ-3230"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "K12",
+      "evidence": [
+        {
+          "file": "corpus/mount-04.md",
+          "quote": "KC-1514 is part of AS-1937."
+        },
+        {
+          "file": "corpus/crossref-09.md",
+          "quote": "AS-1937 is owned by HQ-5378."
+        }
+      ],
+      "required_facts": [
+        [
+          "HQ-5378"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "M01",
+      "evidence": [
+        {
+          "file": "corpus/field-01.md",
+          "quote": "Alver Fern conveyor uses Kingbar drive for normal work."
+        },
+        {
+          "file": "corpus/support-01.md",
+          "quote": "Kingbar drive requires the CD-854 belt ring after a jam."
+        }
+      ],
+      "required_facts": [
+        [
+          "CD-854 belt ring"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "M02",
+      "evidence": [
+        {
+          "file": "corpus/field-02.md",
+          "quote": "The Sable Wharf immersion agitator depends on Reedwell coupling."
+        },
+        {
+          "file": "corpus/support-02.md",
+          "quote": "A replacement Reedwell coupling requires the PS-703 threaded sleeve."
+        }
+      ],
+      "required_facts": [
+        [
+          "PS-703 threaded sleeve"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "M03",
+      "evidence": [
+        {
+          "file": "corpus/field-03.md",
+          "quote": "The Linwood snow gauge uses Hartsill gateway to transmit."
+        },
+        {
+          "file": "corpus/support-03.md",
+          "quote": "Hartsill gateway uses the WQ-293 encoder package for broadcasts."
+        }
+      ],
+      "required_facts": [
+        [
+          "WQ-293 encoder package"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "M04",
+      "evidence": [
+        {
+          "file": "corpus/field-04.md",
+          "quote": "Clove Tern lamp rack depends on Beechmarch terminal for current."
+        },
+        {
+          "file": "corpus/support-04.md",
+          "quote": "The Beechmarch terminal requires a 5 amp fuse link for circuit protection."
+        }
+      ],
+      "required_facts": [
+        [
+          "5 amp fuse link"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "M05",
+      "evidence": [
+        {
+          "file": "corpus/field-05.md",
+          "quote": "Oriole Ridge transfer basin uses Sedgepoint separator for the rinse phase."
+        },
+        {
+          "file": "corpus/support-05.md",
+          "quote": "Sedgepoint separator requires dilute citric solution to rinse."
+        }
+      ],
+      "required_facts": [
+        [
+          "dilute citric solution"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "M06",
+      "evidence": [
+        {
+          "file": "corpus/field-06.md",
+          "quote": "The Moorhaven sampling press uses Rookwood distribution rack."
+        },
+        {
+          "file": "corpus/support-06.md",
+          "quote": "Rookwood distribution rack depends on Quillburn calibration beacon."
+        }
+      ],
+      "required_facts": [
+        [
+          "Quillburn calibration beacon"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "M07",
+      "evidence": [
+        {
+          "file": "corpus/field-07.md",
+          "quote": "Vale Junction staging lift is part of Larkpoint hoist group."
+        },
+        {
+          "file": "corpus/support-07.md",
+          "quote": "Larkpoint hoist group is owned by the Northern inspection desk."
+        }
+      ],
+      "required_facts": [
+        [
+          "Northern inspection desk"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "M08",
+      "evidence": [
+        {
+          "file": "corpus/field-08.md",
+          "quote": "Birchcroft restoration pump uses Whiteloam gasket frame to hold its seal."
+        },
+        {
+          "file": "corpus/support-08.md",
+          "quote": "Whiteloam gasket frame requires the GY-762 flax spool for resealing."
+        }
+      ],
+      "required_facts": [
+        [
+          "GY-762 flax spool"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "M09",
+      "evidence": [
+        {
+          "file": "corpus/field-09.md",
+          "quote": "The Hallowmoss docking scanner uses Fernwick lease service during recovery."
+        },
+        {
+          "file": "corpus/support-09.md",
+          "quote": "Fernwick lease service depends on the Whitefen recovery server."
+        }
+      ],
+      "required_facts": [
+        [
+          "Whitefen recovery server"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "M10",
+      "evidence": [
+        {
+          "file": "corpus/field-10.md",
+          "quote": "Eastcombe paint carriage uses Mossley sprayer head in the cover assembly."
+        },
+        {
+          "file": "corpus/support-10.md",
+          "quote": "Mossley sprayer head requires a TN-357 flat fan nozzle."
+        }
+      ],
+      "required_facts": [
+        [
+          "TN-357 flat fan nozzle"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "M11",
+      "evidence": [
+        {
+          "file": "corpus/field-11.md",
+          "quote": "Tallowfield sample cart uses Shellwick mixing tray for color checks."
+        },
+        {
+          "file": "corpus/support-11.md",
+          "quote": "Shellwick mixing tray requires a 200 mL amber paint vial."
+        }
+      ],
+      "required_facts": [
+        [
+          "200 mL amber paint vial"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "M12",
+      "evidence": [
+        {
+          "file": "corpus/field-12.md",
+          "quote": "Coldwell sample gate is part of the Greybar flood control unit."
+        },
+        {
+          "file": "corpus/support-12.md",
+          "quote": "The Greybar flood control unit is owned by the West water group."
+        }
+      ],
+      "required_facts": [
+        [
+          "West water group"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "Q01",
+      "evidence": [
+        {
+          "file": "corpus/control-1.md",
+          "quote": "Tighten ZT-127 to 32 N·m."
+        }
+      ],
+      "required_facts": [
+        [
+          "32 N·m"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "Q02",
+      "evidence": [
+        {
+          "file": "corpus/control-2.md",
+          "quote": "Store RY-592 in bin seventeen."
+        }
+      ],
+      "required_facts": [
+        [
+          "bin seventeen"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "Q03",
+      "evidence": [
+        {
+          "file": "corpus/control-3.md",
+          "quote": "Check KA-814 every eleven weeks."
+        }
+      ],
+      "required_facts": [
+        [
+          "eleven weeks"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "Q04",
+      "evidence": [
+        {
+          "file": "corpus/control-4.md",
+          "quote": "XK-279 is rated for 68 kilograms."
+        }
+      ],
+      "required_facts": [
+        [
+          "68 kilograms"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "Q05",
+      "evidence": [
+        {
+          "file": "corpus/control-5.md",
+          "quote": "Leave wet umbrellas on the cedar rack outside the kiln room."
+        }
+      ],
+      "required_facts": [
+        [
+          "cedar rack"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "Q06",
+      "evidence": [
+        {
+          "file": "corpus/control-6.md",
+          "quote": "The loading desk printer shows a green check when it accepts a print job."
+        }
+      ],
+      "required_facts": [
+        [
+          "green check"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "Q07",
+      "evidence": [
+        {
+          "file": "corpus/control-7.md",
+          "quote": "The north wall rinse is finished when the drain clears for fifteen seconds."
+        }
+      ],
+      "required_facts": [
+        [
+          "fifteen seconds"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "Q08",
+      "evidence": [
+        {
+          "file": "corpus/control-8.md",
+          "quote": "Wear neoprene gloves before opening the resin drawer."
+        }
+      ],
+      "required_facts": [
+        [
+          "neoprene gloves"
+        ]
+      ],
+      "forbidden_facts": []
+    },
+    {
+      "id": "U01",
+      "evidence": [],
+      "required_facts": [],
+      "forbidden_facts": []
+    }
+  ],
+  "retirement": {
+    "id": "K03",
+    "file": "corpus/crossref-14.md"
+  }
+}

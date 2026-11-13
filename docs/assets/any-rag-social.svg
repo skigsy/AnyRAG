@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">Any RAG — GitHub social preview</title>
+  <desc id="desc">Any RAG, a native foundation for retrieval and graph search, from private notes to team knowledge.</desc>
+  <defs>
+    <pattern id="grid" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1.2" fill="#746261" opacity=".34"/></pattern>
+  </defs>
+  <rect width="1280" height="640" fill="#0d0e11"/>
+  <rect x="24" y="24" width="1232" height="592" rx="27" fill="#171419" stroke="#413438" stroke-width="2"/>
+  <rect x="759" y="46" width="474" height="548" rx="14" fill="url(#grid)"/>
+  <path d="M759 78V553" stroke="#423539"/>
+  <g font-family="Georgia,'Times New Roman',serif" font-weight="400" letter-spacing="-3">
+    <text x="70" y="282" font-size="136" fill="#f5f0e8">Any</text>
+    <text x="327" y="282" font-size="136" fill="none" stroke="#e7ac69" stroke-width="2.4">RAG</text>
+  </g>
+  <g font-family="Arial,Helvetica,sans-serif">
+    <text x="76" y="104" font-size="18" letter-spacing="3.1" fill="#f6c279">OPEN SOURCE / RUST NATIVE</text>
+    <text x="76" y="347" font-size="30" fill="#f5f0e8">Build on evidence.</text>
+    <text x="76" y="393" font-size="24" fill="#ccc0b7">From personal notes to private team search.</text>
+    <path d="M76 444H672" stroke="#423539"/>
+    <text x="76" y="506" font-size="16" letter-spacing="2.4" fill="#e7ac69">RETRIEVAL</text>
+    <text x="267" y="506" font-size="16" letter-spacing="2.4" fill="#e7ac69">GRAPH RAG</text>
+    <text x="452" y="506" font-size="16" letter-spacing="2.4" fill="#e7ac69">CITED RESULTS</text>
+  </g>
+  <g fill="none" stroke="#5a484c" stroke-width="1.8">
+    <path d="M833 322L875 168L981 250L1062 144L1164 325L1080 472L981 250L874 467Z"/>
+    <path d="M875 168L874 467M1062 144L1080 472M875 168L1062 144"/>
+  </g>
+  <path d="M833 322L981 250L1164 325" fill="none" stroke="#d47253" stroke-width="18" opacity=".14"/>
+  <path d="M833 322L981 250L1164 325" fill="none" stroke="#e7ac69" stroke-width="5" stroke-linecap="round"/>
+  <g fill="#261f22" stroke="#816266" stroke-width="2">
+    <circle cx="875" cy="168" r="8"/><circle cx="1062" cy="144" r="8"/><circle cx="874" cy="467" r="8"/><circle cx="1080" cy="472" r="8"/>
+  </g>
+  <g fill="#211a1b" stroke="#e7ac69" stroke-width="3">
+    <rect x="807" y="296" width="52" height="52" rx="11"/><circle cx="981" cy="250" r="28"/><rect x="1138" y="299" width="52" height="52" rx="11"/>
+  </g>
+  <g fill="none" stroke="#f6c279" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M825 311h16v22h-16zM829 317h8m-8 5h8m-8 5h5"/>
+    <path d="M971 259l20-18m-15 0h15v14"/>
+    <path d="M1153 325l8 8 14-16"/>
+  </g>
+  <g font-family="Arial,Helvetica,sans-serif" font-size="13" letter-spacing="2" fill="#e3ccbc" text-anchor="middle">
+    <text x="833" y="377">SOURCE</text><text x="981" y="303">RELATIONSHIP</text><text x="1164" y="380">CITATION</text>
+  </g>
+</svg>

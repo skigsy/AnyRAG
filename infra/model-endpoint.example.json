@@ -1,0 +1,8 @@
+{
+  "url": "http://127.0.0.1:8080/v1/chat/completions",
+  "model": "configured-local-model",
+  "predicates": ["depends_on", "requires", "owned_by", "part_of", "uses"],
+  "response_format": "object",
+  "timeout_seconds": 30,
+  "max_tokens": 512
+}

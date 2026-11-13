@@ -1,0 +1,270 @@
+name: Build and attest release candidates
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Reviewed commit SHA for the selected branch or tag
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Confirm the selected source and audit its locked dependencies
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          python3 -B scripts/check_workspace.py --require-git
+          python3 -B scripts/check_advisories.py
+
+  windows:
+    needs: audit
+    runs-on: windows-2025
+    timeout-minutes: 30
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - name: Build twice, extract the candidate and rehearse personal search
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$installation) { throw 'MSVC build tools unavailable.' }
+          Import-Module (Join-Path $installation 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+          $candidate = Join-Path $env:RUNNER_TEMP 'build'
+          $extracted = Join-Path $env:RUNNER_TEMP 'extracted'
+          $output = Join-Path $env:RUNNER_TEMP 'release-windows'
+          New-Item -ItemType Directory -Path $output | Out-Null
+          $build = python -B scripts/build_native_release.py --output-dir $candidate | ConvertFrom-Json
+          if ($build.source_commit -cne $env:GITHUB_SHA -or !$build.byte_identical) {
+            throw 'Build receipt does not match the workflow source or reproducibility check.'
+          }
+          $archive = Join-Path $candidate $build.archive
+          if ((Get-FileHash -LiteralPath $archive).Hash -ne $build.archive_sha256) {
+            throw 'Windows archive hash differs from its build receipt.'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extracted
+          $binary = Join-Path $extracted 'rust-rag.exe'
+          if ((Get-FileHash -LiteralPath $binary).Hash -ne $build.executable_sha256) {
+            throw 'Extracted Windows executable differs from its build receipt.'
+          }
+          $sbom = Join-Path $extracted 'sbom.cdx.json'
+          $inventory = Get-Content -LiteralPath $sbom -Raw | ConvertFrom-Json
+          if ($inventory.bomFormat -cne 'CycloneDX' -or !$inventory.components.Count) {
+            throw 'Expected a non-empty CycloneDX inventory in the Windows archive.'
+          }
+          python -B scripts/rehearse_operator.py --binary $binary --personal-only --receipt (Join-Path $output 'operator-rehearsal.json')
+          Copy-Item -LiteralPath @($archive, $sbom) -Destination $output
+          $lines = Get-ChildItem -LiteralPath $output -File | Sort-Object Name | ForEach-Object {
+            "$((Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant())  $($_.Name)"
+          }
+          [System.IO.File]::WriteAllText((Join-Path $output 'SHA256SUMS'), ($lines -join [char]10) + [char]10)
+      - name: Store Windows candidate in the workflow run
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: anyrag-windows-x64-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-windows/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  linux:
+    needs: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Save and reload the Linux archive
+        run: |
+          output="$RUNNER_TEMP/release-linux"
+          mkdir "$output"
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("crates/rust-rag/Cargo.toml", "rb"))["package"]["version"])')
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          image="any-rag-local:$version-${GITHUB_SHA:0:12}"
+          docker buildx build --platform linux/amd64 --load --tag "$image" .
+          image_id=$(docker image inspect --format '{{.Id}}' "$image")
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = linux/amd64
+          docker image save --output "$output/rust-rag-linux-amd64.tar" "$image"
+          config_path=$(tar -xOf "$output/rust-rag-linux-amd64.tar" manifest.json | jq -er 'if length == 1 then .[0].Config else error("Expected one image") end')
+          [[ "$config_path" =~ ^(blobs/sha256/)?[a-f0-9]{64}(\.json)?$ ]]
+          config_hash=$(tar -xOf "$output/rust-rag-linux-amd64.tar" "$config_path" | sha256sum)
+          jq -n --arg tag "$image" --arg image_id "$image_id" --arg config "sha256:${config_hash%% *}" \
+            --arg commit "$GITHUB_SHA" '{image_tag:$tag,image_id:$image_id,config_digest:$config,source_commit:$commit}' \
+            > "$output/linux-image.json"
+          docker image rm "$image"
+          docker image load --input "$output/rust-rag-linux-amd64.tar"
+          test "$(docker image inspect --format '{{.Id}}' "$image")" = "$image_id"
+          docker run --rm --network none --read-only "$image_id" capabilities --json |
+            jq -e '.compiled.shared_service and .compiled.local_dashboard'
+          container=$(docker create --network none "$image_id")
+          trap 'docker rm "$container" >/dev/null' EXIT
+          docker cp "$container:/usr/local/bin/rust-rag" "$RUNNER_TEMP/rust-rag"
+          chmod 0700 "$RUNNER_TEMP/rust-rag"
+          python3 -B scripts/rehearse_operator.py \
+            --binary "$RUNNER_TEMP/rust-rag" --receipt "$output/operator-rehearsal.json"
+      - name: Set up the pinned SBOM scanner
+        id: syft
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          syft-version: v1.55.0
+      - name: Inventory the locked Rust build graph
+        env:
+          LINUX_RELEASE_FEATURES: pdf,docx,shared,dashboard
+        run: |
+          # Keep the inventory on the same feature selection as the default Docker build.
+          grep -Fq "0) features=$LINUX_RELEASE_FEATURES ;;" Dockerfile
+          metadata="$RUNNER_TEMP/linux-cargo-metadata.json"
+          cargo metadata --locked --format-version 1 --filter-platform x86_64-unknown-linux-gnu \
+            --features "$LINUX_RELEASE_FEATURES" > "$metadata"
+          output="$RUNNER_TEMP/release-linux/linux-rust-dependencies.json"
+          PYTHONPATH=scripts python3 -B - "$metadata" "$output" <<'PY'
+          import json
+          import os
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          from build_native_release import cargo_graph, json_bytes, sha256
+
+          root, packages, _ = cargo_graph(json.loads(Path(sys.argv[1]).read_bytes()))
+          lock = Path("Cargo.lock").read_bytes()
+          checksums = {
+              (p["name"], p["version"], p.get("source")): p["checksum"]
+              for p in tomllib.loads(lock.decode())["package"]
+              if "checksum" in p
+          }
+          dependencies = [
+              {
+                  "name": p["name"],
+                  "version": p["version"],
+                  "checksum_sha256": checksums[(p["name"], p["version"], p["source"])],
+              }
+              for p in packages
+          ]
+          inventory = {
+              "schema_version": 1,
+              "scope": "Locked Cargo build graph, including build dependencies and excluding dev-only edges",
+              "source_commit": os.environ["GITHUB_SHA"],
+              "target": "x86_64-unknown-linux-gnu",
+              "features": os.environ["LINUX_RELEASE_FEATURES"].split(","),
+              "cargo_lock_sha256": sha256(lock),
+              "package": root["name"],
+              "version": root["version"],
+              "dependencies": dependencies,
+          }
+          Path(sys.argv[2]).write_bytes(json_bytes(inventory))
+          PY
+      - name: Inventory the archived image and record its checksums
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+          SYFT_CHECK_FOR_APP_UPDATE: 'false'
+        run: |
+          cd "$RUNNER_TEMP/release-linux"
+          "$SYFT" scan docker-archive:rust-rag-linux-amd64.tar --output cyclonedx-json=sbom.cdx.json
+          jq -e '.bomFormat == "CycloneDX" and (.components | length > 0)' sbom.cdx.json
+          sha256sum rust-rag-linux-amd64.tar linux-image.json sbom.cdx.json linux-rust-dependencies.json \
+            operator-rehearsal.json > SHA256SUMS
+      - name: Store Linux candidate in the workflow run
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: anyrag-linux-amd64-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-linux/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  provenance:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      # This job processes the verified workflow artifacts and never checks out or runs candidate code.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.windows.outputs.artifact_id }}
+          path: windows
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.linux.outputs.artifact_id }}
+          path: linux
+      - name: Verify both workflow artifacts
+        run: |
+          shopt -s nullglob
+          archives=(windows/rust-rag-*-windows-x64.zip)
+          test "${#archives[@]}" = 1
+          test -s linux/rust-rag-linux-amd64.tar
+          (cd windows && sha256sum --strict --check SHA256SUMS)
+          (cd linux && sha256sum --strict --check SHA256SUMS)
+      - name: Attest the archives
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            windows/rust-rag-*-windows-x64.zip
+            linux/rust-rag-linux-amd64.tar
+          # File attestations are registered with GitHub. Storage records are for OCI registries.
+          create-storage-record: false
+      - name: Verify provenance against the selected source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROVENANCE_BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          verification=(
+            --repo "$GITHUB_REPOSITORY" --source-digest "$GITHUB_SHA"
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-provenance.yml"
+            --deny-self-hosted-runners
+          )
+          for archive in windows/rust-rag-*-windows-x64.zip linux/rust-rag-linux-amd64.tar; do
+            gh attestation verify "$archive" --bundle "$PROVENANCE_BUNDLE" "${verification[@]}"
+            verified=false
+            for attempt in 1 2 3; do
+              if gh attestation verify "$archive" "${verification[@]}"; then
+                verified=true
+                break
+              fi
+              sleep 2
+            done
+            test "$verified" = true
+          done
+          cp "$PROVENANCE_BUNDLE" "$RUNNER_TEMP/anyrag-provenance.jsonl"
+      - name: Store the verified detached provenance bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: anyrag-provenance-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/anyrag-provenance.jsonl
+          if-no-files-found: error
+          retention-days: 14
