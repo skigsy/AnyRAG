@@ -16,6 +16,8 @@ const MAX_CATALOG_IDS: usize = 4;
 const MAX_HOPS: usize = 2;
 const MAX_ADDITIONS: usize = 32;
 const MAX_CHECKS: usize = 1_000;
+#[cfg(feature = "shared")]
+const MAX_DELIVERED_PATHS: usize = 16;
 pub(crate) const LOCAL_REVIEW_FINGERPRINT_PREFIX: &str = "review-v1:";
 const EXTRACTED_UNVERIFIED: &str = "extracted_unverified";
 #[cfg(any(feature = "model", test))]
@@ -709,7 +711,8 @@ fn insert_assertion(
 #[cfg(feature = "shared")]
 pub(crate) use shared_publication::{
     SharedDecision, SharedDisposition, SharedItem, SharedReviewError, decide_shared,
-    install_shared_review, publish_shared, shared_review_queue,
+    install_shared_review, publish_shared, retry_rejected_chunks, shared_rejections,
+    shared_review_queue,
 };
 
 #[cfg(feature = "shared")]
@@ -782,7 +785,11 @@ mod shared_publication {
                 approve INTEGER NOT NULL CHECK (approve IN (0,1)),
                 PRIMARY KEY (actor,idempotency_key)
             );
-            CREATE INDEX IF NOT EXISTS graph_shared_decisions_by_chunk ON graph_shared_decisions(chunk_row);",
+            CREATE INDEX IF NOT EXISTS graph_shared_decisions_by_chunk ON graph_shared_decisions(chunk_row);
+            CREATE TABLE IF NOT EXISTS graph_shared_rejections (
+                chunk_row INTEGER PRIMARY KEY REFERENCES graph_chunks(chunk_row) ON DELETE CASCADE,
+                rejected_items INTEGER NOT NULL CHECK (rejected_items BETWEEN 1 AND 16)
+            );",
         )?;
         Ok(())
     }
@@ -792,6 +799,51 @@ mod shared_publication {
             "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='graph_shared_pending')",
             [],
             |row| row.get(0),
+        )?)
+    }
+
+    pub(crate) fn shared_rejections(db: &Connection) -> Result<Value> {
+        if !rejections_installed(db)? {
+            return Ok(json!({"chunks": 0, "items": 0, "affected": []}));
+        }
+        let (chunks, items): (i64, i64) = db.query_row(
+            "SELECT count(*), coalesce(sum(rejected_items),0) FROM graph_shared_rejections",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let mut statement = db.prepare(
+            "SELECT c.chunk_id,s.source_hash,g.fingerprint,r.rejected_items
+             FROM graph_shared_rejections r JOIN graph_chunks g USING(chunk_row)
+             JOIN chunks c ON c.row_id=r.chunk_row JOIN sources s USING(source_id)
+             ORDER BY c.chunk_id LIMIT 32",
+        )?;
+        let affected = statement.query_map([], |row| {
+            Ok(json!({"chunk_id": row.get::<_, String>(0)?, "revision": row.get::<_, String>(1)?,
+                "fingerprint": row.get::<_, String>(2)?, "items": row.get::<_, i64>(3)?,
+                "reason": "invalid_source_anchor_or_entity"}))
+        })?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(json!({"chunks": chunks, "items": items, "affected": affected}))
+    }
+
+    fn rejections_installed(db: &Connection) -> Result<bool> {
+        Ok(db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='graph_shared_rejections')",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
+    pub(crate) fn retry_rejected_chunks(db: &Connection, fingerprint: &str) -> Result<usize> {
+        if !rejections_installed(db)? {
+            return Ok(0);
+        }
+        Ok(db.execute(
+            "DELETE FROM graph_chunks AS g WHERE fingerprint=?1
+             AND EXISTS(SELECT 1 FROM graph_shared_rejections r WHERE r.chunk_row=g.chunk_row)
+             AND NOT EXISTS(SELECT 1 FROM graph_assertions a WHERE a.chunk_row=g.chunk_row)
+             AND NOT EXISTS(SELECT 1 FROM graph_proposals p WHERE p.chunk_row=g.chunk_row)
+             AND NOT EXISTS(SELECT 1 FROM graph_shared_decisions d WHERE d.chunk_row=g.chunk_row)",
+            [fingerprint],
         )?)
     }
 
@@ -828,8 +880,19 @@ mod shared_publication {
         ensure!(policy_version > 0, SharedReviewError::Invalid);
         let mut seen = HashMap::new();
         let mut validated = Vec::with_capacity(items.len());
+        let mut rejected_items = 0;
         for item in items {
-            let assertion = validate(&item.value, &text, start, predicates)?;
+            let assertion = match validate(&item.value, &text, start, predicates) {
+                Ok(assertion) => assertion,
+                Err(_)
+                    if matches!(item.disposition, SharedDisposition::Review { reason }
+                    if reason == "model_only" || reason == "high_impact_predicate") =>
+                {
+                    rejected_items += 1;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             let id = assertion_id(chunk_id, &assertion);
             let label = match &item.disposition {
                 SharedDisposition::Automatic { rule } => rule.as_str(),
@@ -846,6 +909,12 @@ mod shared_publication {
             "INSERT INTO graph_chunks VALUES(?1,?2)",
             params![row_id, fingerprint],
         )?;
+        if rejected_items > 0 {
+            db.execute(
+                "INSERT INTO graph_shared_rejections VALUES(?1,?2)",
+                params![row_id, rejected_items],
+            )?;
+        }
         let mut published = assertion_insert(db, "graph_assertions")?;
         let mut pending = assertion_insert(db, "graph_proposals")?;
         for (id, assertion, disposition) in validated {
@@ -1341,6 +1410,11 @@ fn assertion_direction(evidence: &Value, assertion: &Value) -> DirectionSupport 
     )
 }
 
+#[cfg(feature = "shared")]
+pub(crate) fn contradicts_direction(evidence: &Value, assertion: &Value) -> bool {
+    assertion_direction(evidence, assertion) == DirectionSupport::Reversed
+}
+
 /// Expand from active assertions inside the same read snapshot as seed retrieval.
 pub fn expand(
     db: &Connection,
@@ -1359,6 +1433,125 @@ pub fn expand_external(
     lookup: &NeighborLookup<'_>,
 ) -> Result<(Vec<Value>, Value)> {
     expand_using(db, seeds, question, limit, Some(lookup))
+}
+
+/// Describe directed paths using only citations already delivered to this reader.
+#[cfg(feature = "shared")]
+pub(crate) fn delivered_paths(
+    db: &Connection,
+    question: &str,
+    evidence: &[&Value],
+) -> Result<Value> {
+    use std::collections::BTreeMap;
+
+    struct Step {
+        target: String,
+        proof: Value,
+    }
+
+    let citations: BTreeMap<_, _> = evidence
+        .iter()
+        .filter_map(|row| Some((row["chunk_id"].as_str()?, *row)))
+        .collect();
+    if citations.is_empty() || ProvenanceSql::read(db)?.join.is_empty() {
+        return Ok(json!({"paths": [], "truncated": false}));
+    }
+    let ids = serde_json::to_string(&citations.keys().collect::<Vec<_>>())?;
+    let mut statement = db.prepare(
+        "SELECT a.edge_id,a.subject,a.subject_key,a.predicate,a.object,a.object_key,a.quote,
+                a.quote_start,a.quote_end,c.chunk_id,s.source_hash,gp.policy_version,
+                CASE WHEN gp.rule IS NULL THEN 'reviewed' ELSE 'declared' END
+         FROM json_each(?1) ids JOIN chunks c ON c.chunk_id=ids.value
+         JOIN graph_assertions a ON a.chunk_row=c.row_id JOIN sources s USING(source_id)
+         JOIN graph_edge_provenance gp ON gp.edge_id=a.edge_id
+         ORDER BY a.edge_id LIMIT ?2",
+    )?;
+    let mut rows = statement.query(params![ids, MAX_CHECKS as i64 + 1])?;
+    let mut outgoing = BTreeMap::<String, Vec<Step>>::new();
+    let mut examined = 0;
+    let mut truncated = false;
+    while let Some(row) = rows.next()? {
+        examined += 1;
+        if examined > MAX_CHECKS {
+            truncated = true;
+            break;
+        }
+        let chunk: String = row.get(9)?;
+        let citation = citations[chunk.as_str()];
+        let source_hash: String = row.get(10)?;
+        let start: i64 = row.get(7)?;
+        let end: i64 = row.get(8)?;
+        let quote: String = row.get(6)?;
+        let (Some(base), Some(text)) = (citation["start"].as_i64(), citation["text"].as_str())
+        else {
+            continue;
+        };
+        let Some(offset) = start
+            .checked_sub(base)
+            .and_then(|n| usize::try_from(n).ok())
+        else {
+            continue;
+        };
+        let exact = text.char_indices().nth(offset).is_some_and(|(byte, _)| {
+            text[byte..].starts_with(&quote)
+                && end.checked_sub(start) == Some(quote.chars().count() as i64)
+        });
+        if !exact || citation["source_hash"] != source_hash {
+            continue;
+        }
+        let assertion_status: String = row.get(12)?;
+        let assertion = json!({"edge_id": row.get::<_, String>(0)?, "subject": row.get::<_, String>(1)?,
+            "predicate": row.get::<_, String>(3)?, "object": row.get::<_, String>(4)?,
+            "quote": quote, "start": start, "end": end});
+        if contradicts_direction(citation, &assertion) {
+            continue;
+        }
+        let subject_key: String = row.get(2)?;
+        outgoing.entry(subject_key).or_default().push(Step {
+            target: row.get(5)?,
+            proof: json!({"assertion": assertion, "chunk_id": chunk, "revision": citation["revision"],
+                "assertion_status": assertion_status, "policy_version": row.get::<_, i64>(11)?}),
+        });
+    }
+
+    let question = entity_key(question);
+    let mut paths = Vec::new();
+    let mut checks = 0;
+    'seeds: for (seed, first) in &outgoing {
+        if !precise_mention(&question, seed) {
+            continue;
+        }
+        for a in first.iter().filter(|step| &step.target != seed) {
+            let Some(second) = outgoing.get(&a.target) else {
+                continue;
+            };
+            for b in second {
+                checks += 1;
+                if checks > MAX_CHECKS || paths.len() == MAX_DELIVERED_PATHS {
+                    truncated = true;
+                    break 'seeds;
+                }
+                if &b.target == seed || b.target == a.target {
+                    continue;
+                }
+                paths.push(json!([a.proof, b.proof]));
+                let Some(third) = outgoing.get(&b.target) else {
+                    continue;
+                };
+                for c in third {
+                    checks += 1;
+                    if checks > MAX_CHECKS || paths.len() == MAX_DELIVERED_PATHS {
+                        truncated = true;
+                        break 'seeds;
+                    }
+                    if &c.target != seed && c.target != a.target && c.target != b.target {
+                        paths.push(json!([a.proof, b.proof, c.proof]));
+                    }
+                }
+            }
+        }
+    }
+    Ok(json!({"paths": paths, "truncated": truncated}))
 }
 
 fn expand_using(
@@ -2222,6 +2415,136 @@ mod tests {
         );
         assert!(expand(&tx, &[seed(true)], "", 5).unwrap().0.is_empty());
         tx.commit().unwrap();
+    }
+
+    #[cfg(feature = "shared")]
+    #[test]
+    fn directed_proof_requires_delivered_current_published_chunks() {
+        let mut db = index();
+        let first = "Cedar Pump uses Relay Kit.";
+        let second = "Relay Kit uses Spare Bracket.";
+        let third = "Spare Bracket uses Wire Pin.";
+        add_chunk(&db, "a", first, 0, None);
+        add_chunk(&db, "b", &format!("🦉\n{second}"), 12, Some(2));
+        add_chunk(&db, "c", third, 0, None);
+        let tx = db.transaction().unwrap();
+        configure(&tx, "fixture").unwrap();
+        install_shared_review(&tx).unwrap();
+        for (id, assertion) in [
+            ("a", edge("Cedar Pump", "Relay Kit", first)),
+            ("b", edge("Relay Kit", "Spare Bracket", second)),
+            ("c", edge("Spare Bracket", "Wire Pin", third)),
+        ] {
+            assert!(publish(&tx, id, "fixture", &vocab(), &[assertion]).unwrap());
+        }
+        tx.execute(
+            "INSERT INTO graph_edge_provenance(edge_id,policy_version,reviewer)
+             SELECT edge_id,1,'reviewer' FROM graph_assertions WHERE subject_key != 'spare bracket'",
+            [],
+        )
+        .unwrap();
+        let a = json!({"chunk_id":"a", "source_hash":"a", "revision":"a", "start":0, "text":first});
+        let b = json!({"chunk_id":"b", "source_hash":"b", "revision":"b", "start":12, "text":format!("🦉\n{second}")});
+        let c = json!({"chunk_id":"c", "source_hash":"c", "revision":"c", "start":0, "text":third});
+        let all = [&a, &b, &c];
+        let proof = delivered_paths(&tx, "What does Cedar Pump use?", &all).unwrap();
+        assert_eq!(proof["paths"].as_array().unwrap().len(), 1);
+        let steps = proof["paths"][0].as_array().unwrap();
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0]["chunk_id"], "a");
+        assert_eq!(steps[1]["chunk_id"], "b");
+        assert_eq!(steps[1]["revision"], "b");
+        assert_eq!(steps[1]["assertion"]["start"], 14);
+        assert_eq!(steps[1]["assertion"]["quote"], second);
+        assert_eq!(steps[1]["assertion_status"], "reviewed");
+        assert_eq!(proof["truncated"], false);
+        tx.execute(
+            "INSERT INTO graph_edge_provenance(edge_id,policy_version,reviewer)
+             SELECT edge_id,1,'reviewer' FROM graph_assertions WHERE subject_key = 'spare bracket'",
+            [],
+        )
+        .unwrap();
+        let complete = delivered_paths(&tx, "What does Cedar Pump use?", &all).unwrap();
+        assert_eq!(complete["paths"][1].as_array().unwrap().len(), 3);
+        let mut stale = b.clone();
+        stale["source_hash"] = json!("another revision");
+        for (question, hits) in [
+            ("What does Cedar Pump use?", [&a, &stale, &c]),
+            ("What does Wire Pin use?", all),
+        ] {
+            assert_eq!(
+                delivered_paths(&tx, question, &hits).unwrap()["paths"],
+                json!([])
+            );
+        }
+        assert_eq!(
+            delivered_paths(&tx, "What does Cedar Pump use?", &[&a, &c]).unwrap()["paths"],
+            json!([])
+        );
+    }
+
+    #[cfg(feature = "shared")]
+    #[test]
+    fn rejected_model_anchor_preserves_valid_review_and_can_retry_empty_chunk() {
+        let mut db = index();
+        let current = "Cedar Pump uses Relay Kit.";
+        let invalid = "The names should remain separate.";
+        let combined = format!("{current}\n{invalid}");
+        add_chunk(&db, "a", &combined, 0, None);
+        add_chunk(&db, "b", invalid, 0, None);
+        let tx = db.transaction().unwrap();
+        configure(&tx, "fixture").unwrap();
+        install_shared_review(&tx).unwrap();
+        let item = |value| SharedItem {
+            value,
+            disposition: SharedDisposition::Review {
+                reason: "model_only",
+            },
+        };
+        assert!(
+            publish_shared(
+                &tx,
+                "a",
+                "fixture",
+                &vocab(),
+                &[
+                    item(edge("Cedar Pump", "Relay Kit", current)),
+                    item(edge("Cedar Pump", "Other Pump", invalid)),
+                ],
+                1
+            )
+            .unwrap()
+        );
+        assert!(
+            publish_shared(
+                &tx,
+                "b",
+                "fixture",
+                &vocab(),
+                &[item(edge("Cedar Pump", "Other Pump", invalid)),],
+                1
+            )
+            .unwrap()
+        );
+        let queue = shared_review_queue(&tx, "fixture", None, 10).unwrap();
+        assert_eq!(queue["proposals"].as_array().unwrap().len(), 1);
+        assert_eq!(queue["proposals"][0]["quote"], current);
+        let rejected = shared_rejections(&tx).unwrap();
+        assert_eq!(rejected["chunks"], 2);
+        assert_eq!(rejected["items"], 2);
+        assert_eq!(retry_rejected_chunks(&tx, "fixture").unwrap(), 1);
+        assert_eq!(
+            shared_rejections(&tx).unwrap()["affected"][0]["revision"],
+            "a"
+        );
+        assert_eq!(pending(&tx, "fixture", 3).unwrap(), ["b"]);
+        tx.execute("DELETE FROM sources WHERE source_id='a'", [])
+            .unwrap();
+        assert_eq!(shared_rejections(&tx).unwrap()["chunks"], 0);
+        assert_eq!(
+            shared_review_queue(&tx, "fixture", None, 10).unwrap()["proposals"],
+            json!([])
+        );
     }
 
     #[test]

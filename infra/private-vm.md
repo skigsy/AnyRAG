@@ -14,7 +14,7 @@ The image context allowlists Rust source and packaging files. For a release, rec
 
 ### Load a reviewed release archive
 
-Download `rust-rag-linux-amd64.tar`, `linux-image.json`, and `SHA256SUMS.txt` from the [v1.0.0 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.0.0). With Docker and `jq` installed, run this from their folder. Check both transferred files before loading. Different Docker image stores may report the reviewed image ID or its Linux amd64 config digest. [Verify package provenance](../docs/evidence.md#verify-package-provenance)
+Download `rust-rag-linux-amd64.tar`, `linux-image.json`, and `SHA256SUMS.txt` from the [v1.1.0 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.1.0). With Docker and `jq` installed, run this from their folder. Check both transferred files before loading. Different Docker image stores may report the reviewed image ID or its Linux amd64 config digest. [Verify package provenance](../docs/evidence.md#verify-package-provenance)
 
 ```sh
 archive=rust-rag-linux-amd64.tar
@@ -26,7 +26,7 @@ RUST_RAG_IMAGE=$(
     test "$(printf '%s\n' "$entry" | wc -l)" -eq 1 || exit 1
     printf '%s\n' "$entry" | sha256sum --check --strict >&2 || exit 1
   done
-  loaded_tag=$(jq -er '.image_tag | select(test("^any-rag-local:1\\.0\\.0-[a-f0-9]{12}$"))' "$metadata") || exit 1
+  loaded_tag=$(jq -er '.image_tag | select(test("^any-rag-local:1\\.1\\.0-[a-f0-9]{12}$"))' "$metadata") || exit 1
   reviewed_id=$(jq -er '.image_id | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata") || exit 1
   image_config=$(jq -er '.config_digest | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata") || exit 1
   docker load --input "$archive" >&2 || exit 1
@@ -336,6 +336,22 @@ Open the cited source and check the quote, relation direction and current contex
 Send that object with `POST /v1/graph-review/decide`. A stale revision, conflicting retry or policy change returns a conflict. Reload the queue before deciding again. The current index records the rule and policy version for automatic links, or the reviewer identity and policy version for confirmed links. Pending proposals and dismissed links stay outside graph search. This workflow applies to the portable typed graph in folder collections. Deployments without a publication policy continue to use direct model extraction.
 
 In a graph query, `graph_support.assertion_status` identifies each supporting link as `declared`, `reviewed`, or `extracted_unverified`. Check `graph_support.path_contains_unverified_assertion` when a result depends on multiple links. The status describes publication provenance. The cited passage and current source context still determine whether the relationship is appropriate for the answer.
+
+### Look up a reviewed relationship
+
+Use the signed `POST /v1/relationship` route for an application that already knows the start entity, the requested final relation, the allowable path length, and any operating setting that must apply. The portable Linux image includes this endpoint. Ordinary natural-language queries still use `/v1/query`.
+
+```sh
+rust_rag_request POST /v1/relationship \
+  -H 'Content-Type: application/json' \
+  --data '{"root":"Mixer-17","terminal_predicates":["owned_by"],"min_steps":2,"max_steps":3,"scope":["night shift"],"limit":12}'
+```
+
+The service returns one directed path with its terminal `value`, exact relation quotes, and the chunk ID and revision for each supporting citation. Reopen each with `GET /v1/evidence/<chunk_id>`. The limit counts distinct relation and context citations. The other possible results are `no_supported_value`, `outside_requested_scope`, `ambiguous`, and `limit_reached`. Handle them explicitly before using a result for a decision.
+
+For a link that depends on a setting or a source-backed name, place a `reviewed_relationships` entry in the collection grant of an administrator policy version. Each entry has `subject`, `predicate`, `object`, one `source` object, a `context` array, and an optional `scope` array of exact strings. The source and context objects each contain `chunk_id`, `revision`, and a literal `quote`. Put both exact entity names in the source quote, and cite the operating condition in context. Keep a conditional link out of the ordinary unqualified approval lane. Request scope selects applicability independently of collection permissions. Edits or deletion of any cited chunk retire the binding on sync. Review the replacement evidence before adding a new binding.
+
+For model-generated answers, set `"explicit_answer_state": true` in the selected chat endpoint configuration. The structured response keeps `insufficient_evidence` for missing values, with optional `absence_evidence` when the model cites the recorded absence. An explicit negative can still be `answered`. Check the underlying citations when using model answers in automation.
 
 ### Upgrade or roll back the service
 

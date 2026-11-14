@@ -125,6 +125,29 @@ pub(crate) fn open_with_ocr(
     create: bool,
     fingerprint: Option<&str>,
 ) -> Result<Connection> {
+    open_index(state, create, fingerprint, false)
+}
+
+#[cfg(feature = "shared")]
+pub(crate) fn open_shared(
+    state: &Path,
+    create: bool,
+    fingerprint: Option<&str>,
+) -> Result<Connection> {
+    let db = open_index(state, create, fingerprint, true)?;
+    db.pragma_update(None, "synchronous", "FULL")?;
+    // The shared service checkpoints at sync and retirement boundaries without
+    // waiting for readers. Keep automatic checkpoint I/O out of commits.
+    db.pragma_update(None, "wal_autocheckpoint", 0)?;
+    Ok(db)
+}
+
+fn open_index(
+    state: &Path,
+    create: bool,
+    fingerprint: Option<&str>,
+    shared: bool,
+) -> Result<Connection> {
     ensure!(
         rusqlite::version_number() >= SQLITE_MIN,
         "This build needs SQLite 3.54.1 or newer."
@@ -191,7 +214,7 @@ pub(crate) fn open_with_ocr(
     let version = compatible_version(&db)?;
     let journal: String = db.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
     ensure!(
-        journal == "delete",
+        journal == "delete" || shared && journal == "wal",
         "Expected rollback journal DELETE mode. Restore the index or start fresh."
     );
     let secure_delete: i32 = db.pragma_query_value(None, "secure_delete", |row| row.get(0))?;
@@ -429,6 +452,11 @@ pub fn upgrade(db: &mut Connection, state: &Path) -> Result<Option<PathBuf>> {
             |row| row.get(0),
         )?;
         if has_state {
+            let journal: String = tx.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
+            ensure!(
+                journal == "delete",
+                "Convert older indexes to DELETE mode before upgrading."
+            );
             // DELETE journaling plus the reserved writer lock makes the unchanged
             // database file a consistent snapshot before the first schema write.
             let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
@@ -836,6 +864,7 @@ pub(crate) struct OcrBatch<'a> {
     worker: Option<&'a ocr::Worker>,
     deadline: Option<Instant>,
     extraction: Option<&'a mut OcrExtraction<'a>>,
+    publish_gate: Option<&'a std::sync::RwLock<()>>,
 }
 
 impl<'a> OcrBatch<'a> {
@@ -844,6 +873,7 @@ impl<'a> OcrBatch<'a> {
             worker,
             deadline: None,
             extraction: None,
+            publish_gate: None,
         }
     }
 
@@ -852,6 +882,26 @@ impl<'a> OcrBatch<'a> {
         self.extraction = Some(extract);
         self
     }
+
+    #[cfg(feature = "shared")]
+    pub(crate) fn with_publish_gate(mut self, gate: &'a std::sync::RwLock<()>) -> Self {
+        self.publish_gate = Some(gate);
+        self
+    }
+}
+
+fn publish_local(
+    tx: rusqlite::Transaction<'_>,
+    gate: Option<&std::sync::RwLock<()>>,
+) -> Result<()> {
+    let _visibility = gate
+        .map(|gate| {
+            gate.write()
+                .map_err(|_| anyhow::anyhow!("Index visibility is unavailable."))
+        })
+        .transpose()?;
+    tx.commit()?;
+    Ok(())
 }
 
 fn source_hash(db: &Connection, id: &str) -> Result<Option<String>> {
@@ -1001,6 +1051,7 @@ fn retire_local_missing(
     inventory: &files::Inventory,
     stamp: &files::FileStamp,
     report: &mut LocalReport,
+    gate: Option<&std::sync::RwLock<()>>,
 ) -> Result<(usize, Option<String>)> {
     if inventory.skipped_links != 0 {
         return Ok((
@@ -1058,7 +1109,7 @@ fn retire_local_missing(
             Some("The source root changed during removal confirmation.".into()),
         ));
     }
-    tx.commit()?;
+    publish_local(tx, gate)?;
     if report.source_review.is_some() {
         for (_, path) in &missing {
             report.source(
@@ -1076,13 +1127,14 @@ fn reconcile_local(
     root: &Path,
     root_text: &str,
     report: &mut LocalReport,
+    gate: Option<&std::sync::RwLock<()>>,
 ) -> Result<(usize, Option<String>)> {
     let stamp = files::folder_stamp(root);
     let snapshot =
         stamp.and_then(|stamp| files::inventory(root).map(|inventory| (stamp, inventory)));
     match snapshot {
         Ok((stamp, inventory)) => {
-            retire_local_missing(db, root, root_text, &inventory, &stamp, report)
+            retire_local_missing(db, root, root_text, &inventory, &stamp, report, gate)
         }
         Err(error) => Ok((0, Some(error.to_string()))),
     }
@@ -1292,7 +1344,7 @@ fn ingest_local(
         for id in prior_ids.iter().filter(|id| !present.contains(*id)) {
             tx.execute("DELETE FROM local_ingest_progress WHERE source_id=?1", [id])?;
         }
-        tx.commit()?;
+        publish_local(tx, ocr.publish_gate)?;
     }
     urgent.sort_unstable_by(|a, b| (a.ordinal, a.source).cmp(&(b.ordinal, b.source)));
     periodic.sort_unstable_by(|a, b| (a.ordinal, a.source).cmp(&(b.ordinal, b.source)));
@@ -1331,10 +1383,11 @@ fn ingest_local(
                 process_local(&tx, &mut state, item, &mut remaining, &mut report, ocr)?;
             }
         }
-        tx.commit()?;
+        publish_local(tx, ocr.publish_gate)?;
     }
     if options.sync {
-        (report.removed, report.sync_reason) = reconcile_local(db, root, root_text, &mut report)?;
+        (report.removed, report.sync_reason) =
+            reconcile_local(db, root, root_text, &mut report, ocr.publish_gate)?;
     }
     Ok(report.json(root_text, Some(&inventory), byte_budget - remaining))
 }
@@ -2873,6 +2926,7 @@ mod local_ingest_tests {
             &inventory,
             &stamp,
             &mut report,
+            None,
         )
         .unwrap();
         assert_eq!(removed, 0);
@@ -2886,6 +2940,7 @@ mod local_ingest_tests {
             &fixture.root,
             display_path(&fixture.root).unwrap(),
             &mut report,
+            None,
         )
         .unwrap();
         assert_eq!((removed, reason), (1, None));

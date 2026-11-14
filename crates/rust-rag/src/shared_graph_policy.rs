@@ -22,7 +22,7 @@ const MAX_DECLARATIONS: usize = 8_192;
 const MAX_PER_CHUNK: usize = 16;
 const MAX_QUOTE: usize = 512;
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PublicationPolicy {
     pub(crate) trusted_paths: Vec<String>,

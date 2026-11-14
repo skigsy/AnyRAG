@@ -193,10 +193,16 @@ fn validate_state_directory(path: &Path) -> Result<PathBuf> {
     ] {
         let entry = path.join(name);
         checked_path(&entry)?;
-        ensure!(
-            !entry.exists() || entry.is_file(),
-            "A state entry is not a regular file."
-        );
+        // SQLite can retire a sidecar while another connection opens the index.
+        // Check presence and file type in the same metadata observation.
+        match entry.symlink_metadata() {
+            Ok(info) => ensure!(
+                info.is_file() && !link_or_unavailable(&info),
+                "A state entry is not a regular local file."
+            ),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error.into()),
+        }
     }
     Ok(path)
 }

@@ -622,6 +622,91 @@ fn company_graph_decision(proposal: &Value, decision: &str, key: &str) -> Value 
 }
 
 #[test]
+fn signed_relationship_checks_scope_and_every_current_binding() {
+    const ROUTE: &str = "/v1/relationship";
+    const EDGE: &str = "Operations Desk requires Access Panel.";
+    const CONDITION: &str = "The Access Panel requirement applies to public matinees.";
+    let model = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let fixture = Fixture::new(Some(&model.server_addr().to_string()), false);
+    let mut profile: Value = serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+    profile["graph"]["extractor"] = json!("chat");
+    fs::write(&fixture.profile, profile.to_string()).unwrap();
+    let root = fixture.root.path();
+    fs::write(root.join("restricted/secret.md"), "Restricted venue handbook.").unwrap();
+    fs::write(root.join("restricted/private-scope.md"), CONDITION).unwrap();
+    fs::write(root.join("open/scope.md"), CONDITION).unwrap();
+    fs::write(root.join("open/edge.md"), EDGE).unwrap();
+    fs::write(
+        root.join("open/seed.md"),
+        "```anyrag-relations\nLobby Desk | depends_on | Operations Desk\n```\n",
+    )
+    .unwrap();
+    let mut policy = json!({"schema_version":1,"version":2,"issuer":ISSUER,
+        "administrators":["admin"],"subjects":{"alice":["reader"]},
+        "collections":{"open":{"roles":["reader"],"subjects":["bob"],"endpoints":["chat"],
+            "graph_publication":{"trusted_paths":["seed.md"],
+                "routine_predicates":["depends_on","requires"],"high_impact_predicates":[],
+                "single_valued_predicates":["requires"]}},
+            "restricted":{"subjects":["bob"]}}});
+    fixture.write_policy(policy.clone());
+    let service = fixture.open();
+    with_http(&service, |address| {
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        let mut request = json!({"root":"Lobby Desk","terminal_predicates":["requires"],
+            "min_steps":2,"max_steps":2,"scope":["public matinee"],"limit":3});
+        let lookup = |token, body| api(address, token, ROUTE, Some(body));
+        let read = |body| lookup(Some(ALICE.as_str()), body);
+        assert_eq!(lookup(None, request.clone()).0, 401);
+        let absent = read(request.clone());
+        assert_eq!(absent.0, 200, "{}", absent.1);
+        assert_eq!(absent.1["status"], "no_supported_value");
+        let anchor = |token: &str, path: &str, quote: &str| {
+            let result = query(address, token, quote, false);
+            let item = result["evidence"]
+                .as_array().unwrap().iter().find(|item| item["path"] == path)
+                .unwrap_or_else(|| panic!("Missing {path}: {result}"));
+            json!({"chunk_id":item["chunk_id"],"revision":item["revision"],"quote":quote})
+        };
+        let source = anchor(ALICE.as_str(), "edge.md", EDGE);
+        let visible = anchor(ALICE.as_str(), "scope.md", CONDITION);
+        let hidden = anchor(BOB.as_str(), "private-scope.md", CONDITION);
+        let relationship = |context: &Value| json!({"subject":"Operations Desk","predicate":"requires",
+            "object":"Access Panel","source":source,"context":[context],"scope":["public matinee"]});
+        policy["version"] = json!(3);
+        policy["collections"]["open"]["reviewed_relationships"] = json!([relationship(&hidden)]);
+        fixture.write_policy(policy.clone());
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        assert_eq!(read(request.clone()), absent);
+        policy["version"] = json!(4);
+        policy["collections"]["open"]["reviewed_relationships"] = json!([relationship(&visible)]);
+        fixture.write_policy(policy.clone());
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        let (status, value) = read(request.clone());
+        assert_eq!(status, 200, "{value}");
+        assert_eq!(value["status"], "value", "{value}");
+        assert_eq!(value["value"], "Access Panel");
+        assert_eq!(value["steps"][1]["quote"], EDGE);
+        assert_eq!(value["steps"][1]["bindings"][0]["chunk_id"], visible["chunk_id"]);
+        request["limit"] = json!(2);
+        assert_eq!(read(request.clone()), absent);
+        request["limit"] = json!(3);
+        request["scope"] = json!([]);
+        assert_eq!(read(request.clone()).1["status"], "outside_requested_scope");
+        request["scope"] = json!(["public matinee"]);
+        fs::write(root.join("open/scope.md"), "Policy replaced this month.").unwrap();
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        assert_eq!(read(request.clone()), absent);
+        fs::remove_file(root.join("open/scope.md")).unwrap();
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        assert_eq!(read(request.clone()), absent);
+        policy["version"] = json!(5);
+        policy["collections"]["open"]["roles"] = json!([]);
+        fixture.write_policy(policy);
+        assert_eq!(read(request), absent);
+    });
+}
+
+#[test]
 fn signed_http_company_graph_publication_review_and_restore() {
     const LIST: &str = "/v1/graph-review/list";
     const DECIDE: &str = "/v1/graph-review/decide";
@@ -859,7 +944,46 @@ fn signed_http_company_graph_publication_review_and_restore() {
 }
 
 #[test]
-fn slow_sync_reports_retryable_busy_and_replay_keeps_one_revision() {
+fn shared_wal_checkpoint_reports_pinned_retired_revision() {
+    let fixture = Fixture::new(None, false);
+    let service = fixture.open();
+    with_http(&service, |address| {
+        assert_eq!(sync_http(address)["wal_checkpoint"]["open"], "complete");
+        let original = query(address, ALICE.as_str(), "Lyra beacon", false);
+        let id = original["evidence"][0]["chunk_id"].as_str().unwrap();
+        let citation = format!("/v1/evidence/{id}");
+        assert_eq!(api(address, Some(ALICE.as_str()), &citation, None).0, 200);
+
+        let mut reader = service.open_collection("open", false).unwrap();
+        let snapshot = reader.transaction().unwrap();
+        let before: i64 = snapshot
+            .query_row("SELECT count(*) FROM sources", [], |row| row.get(0))
+            .unwrap();
+        assert!(before > 0);
+        fs::remove_file(fixture.root.path().join("open/seed.md")).unwrap();
+        let sync = sync_http(address);
+        assert_eq!(sync["status"], "complete");
+        assert_eq!(sync["removed"], 1);
+        assert_eq!(sync["wal_checkpoint"]["open"], "busy");
+        assert_eq!(api(address, Some(ALICE.as_str()), &citation, None).0, 404);
+        assert_eq!(
+            snapshot
+                .query_row("SELECT count(*) FROM sources", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            before
+        );
+        drop(snapshot);
+
+        let sync = sync_http(address);
+        assert_eq!(sync["wal_checkpoint"]["open"], "complete");
+        assert_eq!(api(address, Some(ALICE.as_str()), &citation, None).0, 404);
+        assert!(store::open(&service.collection_dir("open"), false).is_err());
+    });
+}
+
+#[test]
+fn slow_sync_serves_committed_citations_and_replay_keeps_one_revision() {
     let model = tiny_http::Server::http("127.0.0.1:0").unwrap();
     let fixture = Fixture::new(Some(&model.server_addr().to_string()), true);
     let mut policy: Value =
@@ -882,7 +1006,6 @@ fn slow_sync_reports_retryable_busy_and_replay_keeps_one_revision() {
         let old = query(address, ALICE.as_str(), PUBLIC_QUESTION, false);
         let old_chunk = old["evidence"][0]["chunk_id"].as_str().unwrap();
         let sync_path = "/v1/admin/sync";
-        let question = Some(json!({"question":PUBLIC_QUESTION}));
         assert_eq!(
             api(address, Some(ADMIN.as_str()), sync_path, Some(json!({}))).0,
             202
@@ -894,30 +1017,27 @@ fn slow_sync_reports_retryable_busy_and_replay_keeps_one_revision() {
                 .to_string()
                 .contains(PRIVATE_CANARY)
         );
-        let mut worst = Duration::ZERO;
         let citation = format!("/v1/evidence/{old_chunk}");
-        for (token, path, payload) in [
-            (ALICE.as_str(), "/v1/query", question.clone()),
-            (ALICE.as_str(), citation.as_str(), None),
-            (ADMIN.as_str(), sync_path, Some(json!({}))),
-        ] {
-            let start = Instant::now();
-            let (status, body) = api(address, Some(token), path, payload);
-            worst = worst.max(start.elapsed());
-            assert_eq!(status, 409, "{body}");
-            assert_eq!(body["error"]["code"], "WRITER_BUSY");
-            assert_eq!(body["error"]["retryable"], true);
-            assert_eq!(body["error"]["retry_after_seconds"], 1);
-        }
+        let current = query(address, ALICE.as_str(), PUBLIC_QUESTION, false);
+        let hit = &current["evidence"][0];
+        let new_chunk = hit["chunk_id"].as_str().unwrap();
+        assert_ne!(new_chunk, old_chunk);
+        assert!(hit["text"].as_str().unwrap().contains("Revised."));
+        let new_citation = format!("/v1/evidence/{new_chunk}");
+        let (status, cited) = api(address, Some(ALICE.as_str()), &new_citation, None);
+        assert_eq!(status, 200, "{cited}");
+        assert_eq!(cited["evidence"]["revision"], hit["revision"]);
+        assert_eq!(cited["evidence"]["text"], hit["text"]);
+        assert_eq!(api(address, Some(ALICE.as_str()), &citation, None).0, 404);
+        let (status, busy) = api(address, Some(ADMIN.as_str()), sync_path, Some(json!({})));
+        assert_eq!(status, 409, "{busy}");
+        assert_eq!(busy["error"]["code"], "WRITER_BUSY");
+        assert_eq!(busy["error"]["retryable"], true);
+        assert_eq!(busy["error"]["retry_after_seconds"], 1);
         assert_eq!(
             api(address, Some(ADMIN.as_str()), "/v1/admin/status", None).1["sync"]["status"],
             "running"
         );
-        assert!(
-            worst < Duration::from_secs(1),
-            "busy replies took {worst:?}"
-        );
-        println!("Slow sync: worst query, citation or sync admission busy reply {worst:?}");
         stalled
             .respond(
                 tiny_http::Response::from_string(PRIVATE_CANARY)
@@ -937,13 +1057,8 @@ fn slow_sync_reports_retryable_busy_and_replay_keeps_one_revision() {
 
         let new = query(address, ALICE.as_str(), PUBLIC_QUESTION, false);
         let evidence = &new["evidence"][0];
-        assert_ne!(evidence["chunk_id"], old_chunk);
-        let new_chunk = evidence["chunk_id"].as_str().unwrap();
-        let new_citation = format!("/v1/evidence/{new_chunk}");
-        let (status, cited) = api(address, Some(ALICE.as_str()), &new_citation, None);
-        assert_eq!(status, 200);
-        assert_eq!(cited["evidence"]["revision"], evidence["revision"]);
-        assert_eq!(api(address, Some(ALICE.as_str()), &citation, None).0, 404);
+        assert_eq!(evidence["chunk_id"], new_chunk);
+        assert_eq!(evidence["revision"], hit["revision"]);
 
         let retry = "/v1/admin/retry-enrichment";
         let lane = json!({"collection":"open","lane":"vector"});

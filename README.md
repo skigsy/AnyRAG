@@ -54,10 +54,11 @@ AnyRAG includes the code, deployment recipes, and tests for the work that starts
 
 You choose the files, the model if you need one, who gets access, and where it runs. [Explore the architecture](docs/architecture.md)
 
-## In 1.0
+## What's new
 
 | Feature | What you can do |
 | --- | --- |
+| [Resolve a scoped relationship](infra/private-vm.md#look-up-a-reviewed-relationship) | Follow a directed chain through current, reviewed sources and cite the setting where it applies. |
 | [Reopen citations in MCP](docs/setup.md#search-a-personal-index-from-an-mcp-client) | Ask your assistant to reopen a saved citation and verify the exact passage. |
 | [Preview indexed sources](docs/setup.md#inspect-what-the-dashboard-indexed) | Open a document's indexed passages in the dashboard and review files that were skipped or failed. |
 | [Schedule folder sync](infra/README.md#keep-a-personal-folder-current-on-linux) | Keep a personal index current with a Linux timer. |
@@ -73,7 +74,7 @@ See what’s indexed, what still needs enrichment, and what changed on the last 
 
 ## Quickstart: Rust personal search
 
-[Windows ZIP](docs/setup.md#install-the-windows-zip) · [Linux image](docs/setup.md#try-personal-search-in-the-linux-image) · [Build from source](docs/setup.md#install-from-this-repository) · [v1.0.0 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.0.0)
+[Windows ZIP](docs/setup.md#install-the-windows-zip) · [Linux image](docs/setup.md#try-personal-search-in-the-linux-image) · [Build from source](docs/setup.md#install-from-this-repository) · [v1.1.0 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.1.0)
 
 Start with local Markdown and text search. The default build needs no model or database service.
 

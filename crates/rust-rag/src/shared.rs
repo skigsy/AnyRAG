@@ -7,6 +7,8 @@ mod auth;
 mod backup;
 #[path = "shared_graph_policy.rs"]
 mod graph_policy;
+#[path = "shared_relationship.rs"]
+mod relationship;
 #[cfg(test)]
 #[path = "shared_tests.rs"]
 mod tests;
@@ -33,8 +35,9 @@ use std::{
     io::Read,
     net::SocketAddr,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockWriteGuard, mpsc},
+    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError, mpsc},
     thread,
+    time::{Duration, Instant},
 };
 
 const MAX_POLICY: usize = 256 * 1024;
@@ -242,6 +245,8 @@ struct GraphSpec {
     mode: GraphMode,
     extractor: Option<String>,
     projection: Option<Value>,
+    #[serde(default)]
+    allow_unreviewed_model_links: bool,
 }
 
 #[derive(Default, Deserialize, PartialEq, Eq)]
@@ -327,6 +332,8 @@ struct Grant {
     #[serde(default)]
     graph_review_roles: Vec<String>,
     graph_publication: Option<PublicationPolicy>,
+    #[serde(default)]
+    reviewed_relationships: Vec<relationship::ReviewedRelationship>,
 }
 
 impl Policy {
@@ -554,10 +561,13 @@ struct Service {
     gate: RwLock<()>,
     mutation: Mutex<()>,
     job: Mutex<Value>,
-    _lease: File,
     state: PathBuf,
     binding: String,
     sources: BTreeMap<String, Source>,
+    // Keep WAL sidecars open between requests. Closing the last connection
+    // can briefly exclude new opens while SQLite cleans up the sidecars.
+    _collection_connections: Mutex<Vec<Connection>>,
+    _lease: File,
     backups: Option<BackupStore>,
     pdf: bool,
     ocr: Option<crate::ocr::Worker>,
@@ -569,6 +579,7 @@ struct Service {
     reranker_status: Option<&'static str>,
     graph: GraphMode,
     extractor: Option<String>,
+    allow_unreviewed_model_links: bool,
     #[cfg(feature = "aws")]
     projection: Option<crate::cloud::NeptuneGraph>,
 }
@@ -776,6 +787,12 @@ impl Service {
                 profile.graph.mode != GraphMode::Off && endpoints.contains_key(extractor),
                 "Choose a configured chat endpoint for graph extraction."
             );
+            ensure!(
+                profile.graph.allow_unreviewed_model_links
+                    || (profile.graph.mode == GraphMode::Typed
+                        && sources.values().all(|source| source.folder().is_some())),
+                "Model extraction with Neptune or non-folder sources requires explicit allow_unreviewed_model_links opt-in."
+            );
         }
         ensure!(
             profile.graph.mode != GraphMode::Neptune || cfg!(feature = "aws"),
@@ -868,7 +885,7 @@ impl Service {
             binding == saved,
             "This state is bound to a different shared deployment. Use a separate state directory."
         );
-        let service = Self {
+        let mut service = Self {
             auth,
             policy_source,
             meta: Mutex::new(meta),
@@ -879,6 +896,7 @@ impl Service {
             state,
             binding,
             sources,
+            _collection_connections: Mutex::new(Vec::new()),
             backups,
             pdf: profile.pdf,
             ocr,
@@ -890,6 +908,7 @@ impl Service {
             reranker_status,
             graph: profile.graph.mode,
             extractor: profile.graph.extractor,
+            allow_unreviewed_model_links: profile.graph.allow_unreviewed_model_links,
             #[cfg(feature = "aws")]
             projection,
         };
@@ -898,15 +917,20 @@ impl Service {
             .auth
             .preflight()
             .context("The verification keys could not be loaded.")?;
+        let mut connections = Vec::with_capacity(service.sources.len());
         for name in service.sources.keys() {
             let mut db = service.open_collection(name, true)?;
             store::upgrade(&mut db, &service.collection_dir(name))?;
+            let journal: String = db.query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))?;
+            ensure!(journal == "wal", "Shared collection storage requires WAL.");
             if let Some(embedding) = &service.embedding {
                 let tx = db.transaction_with_behavior(Immediate)?;
                 vector::configure(&tx, embedding.fingerprint(), embedding.dimensions())?;
                 tx.commit()?;
             }
+            connections.push(db);
         }
+        service._collection_connections = Mutex::new(connections);
         Ok(service)
     }
 
@@ -917,7 +941,11 @@ impl Service {
     fn open_collection(&self, name: &str, create: bool) -> Result<Connection> {
         let path = files::state_directory(&self.collection_dir(name), create)?;
         let fingerprint = self.ocr.as_ref().map(crate::ocr::Worker::fingerprint);
-        let db = store::open_with_ocr(&path, create, fingerprint)?;
+        let db = store::open_shared(&path, create, fingerprint)?;
+        if !create {
+            let journal: String = db.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
+            ensure!(journal == "wal", "Shared collection storage requires WAL.");
+        }
         ensure!(
             store::ocr_fingerprint(&db)?.as_deref() == fingerprint,
             "Unexpected shared OCR binding."
@@ -929,7 +957,7 @@ impl Service {
         // Read and persist under a single lock so two request threads cannot
         // apply the policy floor out of order.
         let meta = self.meta.lock().map_err(|_| POLICY_ERROR)?;
-        let (policy, digest) = self.policy_source.read().map_err(|_| POLICY_ERROR)?;
+        let (mut policy, digest) = self.policy_source.read().map_err(|_| POLICY_ERROR)?;
         let valid_set = |items: &[String], check: fn(&str) -> bool| {
             items.len() <= 5_000
                 && items.iter().all(|s| check(s))
@@ -952,6 +980,15 @@ impl Service {
                     || !valid_set(&grant.endpoints, label)
                     || !valid_set(&grant.graph_review_subjects, subject)
                     || !valid_set(&grant.graph_review_roles, label)
+                    || (!grant.reviewed_relationships.is_empty()
+                        && (grant.reviewed_relationships.len() > 128
+                            || grant.graph_publication.is_none()
+                            || self.extractor.as_ref().is_none_or(|extractor| {
+                                grant
+                                    .reviewed_relationships
+                                    .iter()
+                                    .any(|edge| !edge.valid(self.endpoints[extractor].predicates()))
+                            })))
                     || grant.graph_publication.as_ref().is_some_and(|rules| {
                         self.graph != GraphMode::Typed
                             || self.sources[name].folder().is_none()
@@ -986,6 +1023,18 @@ impl Service {
                 params![policy.version, digest],
             )
             .map_err(|_| POLICY_ERROR)?;
+        }
+        // The default has no trusted paths or automatic publication rules.
+        // Keep the policy floor tied to the original signed/managed input.
+        if self.graph == GraphMode::Typed
+            && self.extractor.is_some()
+            && !self.allow_unreviewed_model_links
+        {
+            for grant in policy.collections.values_mut() {
+                grant
+                    .graph_publication
+                    .get_or_insert_with(PublicationPolicy::default);
+            }
         }
         Ok((policy, digest))
     }
@@ -1127,6 +1176,33 @@ impl Service {
         Ok(())
     }
 
+    fn read_during_sync(&self) -> ApiResult<RwLockReadGuard<'_, ()>> {
+        let started = Instant::now();
+        loop {
+            match self.gate.try_read() {
+                Ok(read) => return Ok(read),
+                Err(TryLockError::Poisoned(error)) => return Err(unavailable(error)),
+                Err(TryLockError::WouldBlock) => {
+                    // Wait through short publication windows. Keep the wait bounded
+                    // and do not queue readers behind backup, restore, or reopen.
+                    if started.elapsed() >= Duration::from_millis(250) {
+                        return Err(WRITER_BUSY);
+                    }
+                    if self.job.lock().map_err(unavailable)?["status"] != "running" {
+                        // Sync may have released visibility while this reader
+                        // was checking its status. Retry once before rejecting.
+                        return match self.gate.try_read() {
+                            Ok(read) => Ok(read),
+                            Err(TryLockError::Poisoned(error)) => Err(unavailable(error)),
+                            Err(TryLockError::WouldBlock) => Err(WRITER_BUSY),
+                        };
+                    }
+                    thread::sleep(Duration::from_millis(2));
+                }
+            }
+        }
+    }
+
     fn check_scope(
         &self,
         principal: &Principal,
@@ -1181,7 +1257,7 @@ impl Service {
         request: Query,
         rerank: impl FnOnce(&str, &mut [Value]) -> Value,
     ) -> ApiResult<Value> {
-        let _read = self.gate.try_read().map_err(|_| WRITER_BUSY)?;
+        let _read = self.read_during_sync()?;
         self.ready()?;
         let (policy, _) = self.policy()?;
         let scope = policy.scope(principal)?;
@@ -1332,11 +1408,18 @@ impl Service {
             )
             .map_err(unavailable)?;
             if graph {
-                let coverage = if traverse {
+                let mut coverage = if traverse {
                     result["graph_coverage"].clone()
                 } else {
                     json!({"status":"publication_reconciling"})
                 };
+                if traverse && self.graph == GraphMode::Typed {
+                    let rejected = graph::shared_rejections(&db).map_err(unavailable)?;
+                    if rejected["chunks"].as_i64().is_some_and(|count| count > 0) {
+                        coverage["partial"] = json!(true);
+                        coverage["rejected_anchor_chunks"] = rejected["chunks"].clone();
+                    }
+                }
                 graph_coverage.insert(collection, coverage);
             }
             vector_indexed += result["vector_coverage"]["indexed_chunks"]
@@ -1372,6 +1455,26 @@ impl Service {
             self.check_scope(principal, &scope, None, graph_policy)?;
         }
         evidence.truncate(limit);
+        let mut graph_paths = BTreeMap::new();
+        if graph && self.graph == GraphMode::Typed {
+            for collection in &scope {
+                if graph_coverage[collection]["status"] == "publication_reconciling" {
+                    continue;
+                }
+                let delivered: Vec<_> = evidence
+                    .iter()
+                    .filter(|row| row["collection"] == collection.as_str())
+                    .collect();
+                if !delivered.is_empty() {
+                    let db = self
+                        .open_collection(collection, false)
+                        .map_err(unavailable)?;
+                    let paths = graph::delivered_paths(&db, &request.question, &delivered)
+                        .map_err(unavailable)?;
+                    graph_paths.insert(collection.clone(), paths);
+                }
+            }
+        }
         let status = if evidence.is_empty() {
             "abstained"
         } else if evidence.iter().any(|hit| hit["match_status"] == "evidence") {
@@ -1394,7 +1497,11 @@ impl Service {
             } else {
                 // The gate read lock held for this request keeps indexed
                 // revisions fixed; scope is rechecked below before release.
-                match endpoint.answer_attempt(&request.question, &evidence) {
+                match endpoint.answer_attempt_with_paths(
+                    &request.question,
+                    &evidence,
+                    Some((&graph_paths, policy.version)),
+                ) {
                     Ok(attempt) => {
                         let mut result = attempt.result.unwrap_or_else(|error|
                             json!({"status":"unavailable","reason":Failure::of(&error).code(),
@@ -1422,6 +1529,9 @@ impl Service {
         if graph {
             result["graph_coverage"] = json!(graph_coverage);
         }
+        if !graph_paths.is_empty() {
+            result["graph_paths"] = json!(graph_paths);
+        }
         if let Some(reason) = embedding_failure {
             result["effective_mode"] = json!("lexical");
             result["vector_coverage"] = json!({"partial":true,"reason":reason});
@@ -1439,7 +1549,7 @@ impl Service {
     }
 
     fn evidence(&self, principal: &Principal, id: &str) -> ApiResult<Value> {
-        let _read = self.gate.try_read().map_err(|_| WRITER_BUSY)?;
+        let _read = self.read_during_sync()?;
         self.ready()?;
         let (policy, _) = self.policy()?;
         let scope = policy.scope(principal)?;
@@ -1609,10 +1719,11 @@ impl Service {
                 // Hold the gate in the worker that will use it. A busy reply
                 // leaves the policy floor, job state and sources untouched.
                 let admission = (|| {
+                    let mut job = service.job.lock().map_err(unavailable)?;
                     let write = service.try_write()?;
                     let (policy, digest) = service.policy()?;
                     policy.admin(&principal)?;
-                    *service.job.lock().map_err(unavailable)? = json!({"status":"running"});
+                    *job = json!({"status":"running"});
                     Ok((write, digest))
                 })();
                 let (mut write, digest) = match admission {
@@ -1627,6 +1738,8 @@ impl Service {
                     .sync(&principal, &digest, &mut write)
                     .unwrap_or_else(|error| json!({"status":"incomplete","reason":error.1}));
                 if let Ok(mut job) = service.job.lock() {
+                    // Keep the reservation until the terminal state is visible.
+                    drop(write.visibility.take());
                     *job = report;
                 }
             })
@@ -1641,9 +1754,8 @@ impl Service {
         digest: &str,
         write: &mut ServiceWriter<'_>,
     ) -> ApiResult<Value> {
-        // The sync owns the mutation reservation until it finishes. OCR can
-        // release read visibility while the collection has only a reserved
-        // SQLite writer transaction and no changes from the document.
+        // Sync reserves the writer until it finishes. Slow external work can
+        // let readers through without giving up that reservation.
         let policy = self.confirm_admin(principal, digest)?;
         let (maintenance, _, restore_pending) = self.phase()?;
         if restore_pending {
@@ -1661,6 +1773,7 @@ impl Service {
         let mut removed = 0;
         let mut failed = 0;
         let mut graph_pending = 0;
+        let mut graph_rejected = 0;
         let mut vector_pending = 0;
         let mut enrichment = BTreeMap::new();
         let mut pauses = [None, None];
@@ -1668,19 +1781,11 @@ impl Service {
         let mut source_pending = 0;
         let mut projection_complete = true;
         let mut projection_cleanup_complete = true;
+        let mut wal_checkpoint = BTreeMap::new();
         let check_policy = || {
             self.confirm_admin(principal, digest)
                 .map_err(|error| anyhow::anyhow!(error.2))
         };
-        let mut extract = |worker: &crate::ocr::Worker, raw: &[u8], hash: &str, deadline| {
-            check_policy()?;
-            let result = write
-                .allow_reads(|| worker.extract(raw, hash, deadline))
-                .map_err(|error| anyhow::anyhow!(error.2))?;
-            check_policy()?;
-            Ok(result)
-        };
-        let mut ocr = store::OcrBatch::new(self.ocr.as_ref()).with_extraction(&mut extract);
         for (name, source) in &self.sources {
             self.confirm_admin(principal, digest)?;
             let mut db = self.open_collection(name, false).map_err(unavailable)?;
@@ -1715,7 +1820,20 @@ impl Service {
                     );
                 }
             }
-            let report = match source.ingest(&mut db, self.pdf, &mut ocr) {
+            let mut extract = |worker: &crate::ocr::Worker, raw: &[u8], hash: &str, deadline| {
+                check_policy()?;
+                let result = worker.extract(raw, hash, deadline);
+                check_policy()?;
+                Ok(result)
+            };
+            let mut ocr = store::OcrBatch::new(self.ocr.as_ref()).with_extraction(&mut extract);
+            let report = if source.folder().is_some() {
+                let mut ocr = ocr.with_publish_gate(&self.gate);
+                write.allow_reads(|| source.ingest(&mut db, self.pdf, &mut ocr))?
+            } else {
+                source.ingest(&mut db, self.pdf, &mut ocr)
+            };
+            let report = match report {
                 Ok(report) => report,
                 Err(error) => {
                     self.confirm_admin(principal, digest)?;
@@ -1771,7 +1889,7 @@ impl Service {
                     self.confirm_admin(principal, digest)?;
                 }
                 if let Some(work) = graph_work {
-                    let lane = self.sync_enrichment(
+                    let mut lane = self.sync_enrichment(
                         &mut db,
                         principal,
                         digest,
@@ -1779,8 +1897,14 @@ impl Service {
                         work,
                         review.map(|(rules, fingerprint)| (rules, fingerprint, policy.version)),
                         &mut graph_failure,
+                        write,
                     )?;
                     graph_pending += lane["pending"].as_u64().unwrap_or_default();
+                    if review.is_some() {
+                        let rejected = graph::shared_rejections(&db).map_err(unavailable)?;
+                        graph_rejected += rejected["chunks"].as_u64().unwrap_or_default();
+                        lane["anchor_rejections"] = rejected;
+                    }
                     progress.insert("graph".into(), lane);
                 }
                 if let Some(work) = vector_work {
@@ -1792,6 +1916,7 @@ impl Service {
                         work,
                         None,
                         &mut vector_failure,
+                        write,
                     )?;
                     vector_pending += lane["pending"].as_u64().unwrap_or_default();
                     progress.insert("vector".into(), lane);
@@ -1804,26 +1929,49 @@ impl Service {
             let (active, cleaned) = self.reconcile_graph(&mut db, name);
             projection_complete &= active;
             projection_cleanup_complete &= cleaned;
+            wal_checkpoint.insert(name, write.allow_reads(|| Self::checkpoint(&db))?);
         }
         self.confirm_admin(principal, digest)?;
         let reconciled = !sync_blocked && source_pending == 0 && failed == 0 && projection_complete;
         if maintenance && reconciled {
             self.set_phase(true, Some(digest), false)?;
         }
-        let status = if reconciled && graph_pending == 0 && vector_pending == 0 {
-            "complete"
-        } else {
-            "partial"
-        };
+        let status =
+            if reconciled && graph_pending == 0 && graph_rejected == 0 && vector_pending == 0 {
+                "complete"
+            } else {
+                "partial"
+            };
         Ok(
             json!({"status":status,"updated":updated,"unchanged":unchanged,"removed":removed,"failed":failed,
             "source_pending":source_pending,
-            "graph_pending":graph_pending,"vector_pending":vector_pending,"sync_blocked":sync_blocked,
+            "graph_pending":graph_pending,"graph_rejected":graph_rejected,
+            "vector_pending":vector_pending,"sync_blocked":sync_blocked,
             "enrichment":enrichment,
             "provider_halts":{"graph":graph_failure.map(Failure::code),"vector":vector_failure.map(Failure::code)},
             "projection_complete":projection_complete,"projection_cleanup_complete":projection_cleanup_complete,
+            "wal_checkpoint":wal_checkpoint,
             "inventory_reconciled":reconciled}),
         )
+    }
+
+    fn checkpoint(db: &Connection) -> &'static str {
+        // Do not wait for an older reader to release its snapshot. A busy
+        // checkpoint does not undo committed source or citation retirement.
+        if db.busy_timeout(Duration::ZERO).is_err() {
+            return "unavailable";
+        }
+        match db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        }) {
+            Ok((0, 0, 0)) => "complete",
+            Ok((1, _, _)) => "busy",
+            _ => "unavailable",
+        }
     }
 
     fn sync_enrichment(
@@ -1835,6 +1983,7 @@ impl Service {
         work: ConfiguredLane<'_>,
         review: Option<(&PublicationPolicy, &str, i64)>,
         halted: &mut Option<Failure>,
+        write: &mut ServiceWriter<'_>,
     ) -> ApiResult<Value> {
         let (lane, fingerprint) =
             work.key_with_review(review.map(|(_, fingerprint, _)| fingerprint));
@@ -1873,95 +2022,107 @@ impl Service {
                 break;
             }
             for chunk in pending {
-                let tx = db
-                    .transaction_with_behavior(Immediate)
-                    .map_err(unavailable)?;
-                let Some(claim) =
-                    enrichment::claim(&tx, lane, fingerprint, &chunk).map_err(unavailable)?
-                else {
-                    continue;
-                };
-                tx.commit().map_err(unavailable)?;
-                let passage = match lane {
-                    Lane::Graph => graph::unfinished_text(db, &chunk, fingerprint),
-                    Lane::Vector => vector::unfinished_text(db, &chunk, fingerprint),
-                }
-                .map_err(unavailable)?;
-                let Some(passage) = passage else {
-                    continue;
-                };
-                check_access()?;
-                let payload = match work {
-                    ConfiguredLane::Graph(_, endpoint) => {
-                        endpoint.extract(&passage).map(PreparedEnrichment::Graph)
-                    }
-                    ConfiguredLane::Vector(embedding) => embedding
-                        .embed(&passage, false)
-                        .map(PreparedEnrichment::Vector),
-                };
-                check_access()?;
-                let tx = db
-                    .transaction_with_behavior(Immediate)
-                    .map_err(unavailable)?;
-                if !claim.current(&tx).map_err(unavailable)? {
-                    continue;
-                }
-                let publication = match payload {
-                    Ok(PreparedEnrichment::Graph(assertions)) => {
-                        let ConfiguredLane::Graph(_, endpoint) = work else {
-                            unreachable!("graph payload is from the configured graph lane");
-                        };
-                        let published = if let Some((rules, _, policy_version)) = review {
-                            let items = rules.stage_proposals(assertions);
-                            graph::publish_shared(
-                                &tx,
-                                &chunk,
-                                fingerprint,
-                                endpoint.predicates(),
-                                &items,
-                                policy_version,
-                            )
-                        } else {
-                            graph::publish(
-                                &tx,
-                                &chunk,
-                                fingerprint,
-                                endpoint.predicates(),
-                                &assertions,
-                            )
-                        };
-                        match published {
-                            Ok(published) => Ok(published),
-                            // Graph validation finishes before publication writes.
-                            Err(error) if error.downcast_ref::<rusqlite::Error>().is_none() => {
-                                Err(Failure::Item)
-                            }
-                            Err(error) => return Err(unavailable(error)),
-                        }
-                    }
-                    Ok(PreparedEnrichment::Vector(values)) => {
-                        Ok(vector::publish(&tx, &chunk, fingerprint, &values)
-                            .map_err(unavailable)?)
-                    }
-                    Err(error) => Err(Failure::of(&error)),
-                };
-                let current = match publication {
-                    Ok(true) => enrichment::completed(&tx, &claim),
-                    Ok(false) => enrichment::release(&tx, &claim),
-                    Err(Failure::Item) => enrichment::failed(&tx, &claim),
-                    Err(failure) => {
-                        *halted = Some(failure);
-                        if let Failure::RateLimited(seconds) = failure {
-                            enrichment::pause(&tx, lane, fingerprint, seconds)
-                                .map_err(unavailable)?;
-                        }
-                        enrichment::release(&tx, &claim)
-                    }
-                }
-                .map_err(unavailable)?;
-                if current {
+                // A lease changes scheduling metadata only. The writer
+                // reservation prevents competing mutations until publication.
+                let prepared = write.allow_reads(|| -> ApiResult<_> {
+                    let tx = db
+                        .transaction_with_behavior(Immediate)
+                        .map_err(unavailable)?;
+                    let Some(claim) =
+                        enrichment::claim(&tx, lane, fingerprint, &chunk).map_err(unavailable)?
+                    else {
+                        return Ok(None);
+                    };
                     tx.commit().map_err(unavailable)?;
-                }
+                    let passage = match lane {
+                        Lane::Graph => graph::unfinished_text(db, &chunk, fingerprint),
+                        Lane::Vector => vector::unfinished_text(db, &chunk, fingerprint),
+                    }
+                    .map_err(unavailable)?;
+                    let Some(passage) = passage else {
+                        return Ok(None);
+                    };
+                    check_access()?;
+                    let payload = match work {
+                        ConfiguredLane::Graph(_, endpoint) => {
+                            endpoint.extract(&passage).map(PreparedEnrichment::Graph)
+                        }
+                        ConfiguredLane::Vector(embedding) => embedding
+                            .embed(&passage, false)
+                            .map(PreparedEnrichment::Vector),
+                    };
+                    Ok(Some((claim, payload)))
+                })??;
+                let Some((claim, payload)) = prepared else {
+                    continue;
+                };
+                write.allow_reads(|| -> ApiResult<()> {
+                    check_access()?;
+                    let tx = db
+                        .transaction_with_behavior(Immediate)
+                        .map_err(unavailable)?;
+                    if !claim.current(&tx).map_err(unavailable)? {
+                        return Ok(());
+                    }
+                    let publication = match payload {
+                        Ok(PreparedEnrichment::Graph(assertions)) => {
+                            let ConfiguredLane::Graph(_, endpoint) = work else {
+                                unreachable!("graph payload is from the configured graph lane");
+                            };
+                            let published = if let Some((rules, _, policy_version)) = review {
+                                let items = rules.stage_proposals(assertions);
+                                graph::publish_shared(
+                                    &tx,
+                                    &chunk,
+                                    fingerprint,
+                                    endpoint.predicates(),
+                                    &items,
+                                    policy_version,
+                                )
+                            } else {
+                                graph::publish(
+                                    &tx,
+                                    &chunk,
+                                    fingerprint,
+                                    endpoint.predicates(),
+                                    &assertions,
+                                )
+                            };
+                            match published {
+                                Ok(published) => Ok(published),
+                                // Graph validation finishes before publication writes.
+                                Err(error) if error.downcast_ref::<rusqlite::Error>().is_none() => {
+                                    Err(Failure::Item)
+                                }
+                                Err(error) => return Err(unavailable(error)),
+                            }
+                        }
+                        Ok(PreparedEnrichment::Vector(values)) => {
+                            Ok(vector::publish(&tx, &chunk, fingerprint, &values)
+                                .map_err(unavailable)?)
+                        }
+                        Err(error) => Err(Failure::of(&error)),
+                    };
+                    let current = match publication {
+                        Ok(true) => enrichment::completed(&tx, &claim),
+                        Ok(false) => enrichment::release(&tx, &claim),
+                        Err(Failure::Item) => enrichment::failed(&tx, &claim),
+                        Err(failure) => {
+                            *halted = Some(failure);
+                            if let Failure::RateLimited(seconds) = failure {
+                                enrichment::pause(&tx, lane, fingerprint, seconds)
+                                    .map_err(unavailable)?;
+                            }
+                            enrichment::release(&tx, &claim)
+                        }
+                    }
+                    .map_err(unavailable)?;
+                    if current {
+                        check_access()?;
+                        tx.commit().map_err(unavailable)?;
+                    }
+                    Ok(())
+                })??;
                 if halted.is_some() {
                     break 'batches;
                 }
@@ -2012,8 +2173,15 @@ impl Service {
         let tx = db
             .transaction_with_behavior(Immediate)
             .map_err(unavailable)?;
-        let reset = enrichment::retry(&tx, lane, fingerprint).map_err(unavailable)?;
-        let progress = enrichment::progress(&tx, lane, fingerprint).map_err(unavailable)?;
+        let mut reset = enrichment::retry(&tx, lane, fingerprint).map_err(unavailable)?;
+        let reviewed_graph = request.lane == "graph" && review_fingerprint.is_some();
+        if reviewed_graph {
+            reset += graph::retry_rejected_chunks(&tx, fingerprint).map_err(unavailable)?;
+        }
+        let mut progress = enrichment::progress(&tx, lane, fingerprint).map_err(unavailable)?;
+        if reviewed_graph {
+            progress["anchor_rejections"] = graph::shared_rejections(&tx).map_err(unavailable)?;
+        }
         tx.commit().map_err(unavailable)?;
         Ok(json!({"schema_version":1,"reset":reset,"progress":progress}))
     }
@@ -2039,7 +2207,7 @@ impl Service {
                 "Supply a source identifier from a citation.",
             ));
         }
-        let _write = self.try_write()?;
+        let mut write = self.try_write()?;
         let (policy, digest) = self.policy()?;
         policy.admin(principal)?;
         let (maintenance, _, pending) = self.phase()?;
@@ -2056,6 +2224,7 @@ impl Service {
         let mut removed = 0;
         let mut projected = true;
         let mut projection_cleanup_complete = true;
+        let mut wal_checkpoint = BTreeMap::new();
         for name in self.sources.keys() {
             self.confirm_admin(principal, &digest)?;
             let mut db = self.open_collection(name, false).map_err(unavailable)?;
@@ -2066,11 +2235,13 @@ impl Service {
                 projection_cleanup_complete &= cleaned;
             }
             removed += count;
+            wal_checkpoint.insert(name, write.allow_reads(|| Self::checkpoint(&db))?);
         }
         self.confirm_admin(principal, &digest)?;
         Ok(
             json!({"schema_version":1,"removed_sources":removed,"projection_complete":projected,
             "projection_cleanup_complete":projection_cleanup_complete,
+            "wal_checkpoint":wal_checkpoint,
             "scope":"Active indexes only. Source files and backup retention are separate."}),
         )
     }
@@ -2195,6 +2366,7 @@ fn route(service: &Arc<Service>, request: &mut tiny_http::Request) -> ApiResult<
     let principal = service.auth.authenticate(header)?;
     let response = match (request.method(), path.as_str()) {
         (&Post, "/v1/query") => service.query(&principal, request_json(request)?)?,
+        (&Post, "/v1/relationship") => service.relationship(&principal, request_json(request)?)?,
         (&Post, "/v1/graph-review/list") => {
             service.graph_review_list(&principal, request_json(request)?)?
         }
