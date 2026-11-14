@@ -14,7 +14,7 @@ The image context allowlists Rust source and packaging files. For a release, rec
 
 ### Load a reviewed release archive
 
-Download `rust-rag-linux-amd64.tar`, `linux-image.json`, and `SHA256SUMS.txt` from the [v1.1.1 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.1.1). With Docker and `jq` installed, run this from their folder. Check both transferred files before loading. Different Docker image stores may report the reviewed image ID or its Linux amd64 config digest. [Verify package provenance](../docs/evidence.md#verify-package-provenance)
+Download `rust-rag-linux-amd64.tar`, `linux-image.json`, and `SHA256SUMS.txt` from the [v1.1.2 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.1.2). With Docker and `jq` installed, run this from their folder. Check both transferred files before loading. Different Docker image stores may report the reviewed image ID or its Linux amd64 config digest. [Verify package provenance](../docs/evidence.md#verify-package-provenance)
 
 ```sh
 archive=rust-rag-linux-amd64.tar
@@ -26,7 +26,7 @@ RUST_RAG_IMAGE=$(
     test "$(printf '%s\n' "$entry" | wc -l)" -eq 1 || exit 1
     printf '%s\n' "$entry" | sha256sum --check --strict >&2 || exit 1
   done
-  loaded_tag=$(jq -er '.image_tag | select(test("^any-rag-local:1\\.1\\.1-[a-f0-9]{12}$"))' "$metadata") || exit 1
+  loaded_tag=$(jq -er '.image_tag | select(test("^any-rag-local:1\\.1\\.2-[a-f0-9]{12}$"))' "$metadata") || exit 1
   reviewed_id=$(jq -er '.image_id | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata") || exit 1
   image_config=$(jq -er '.config_digest | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata") || exit 1
   docker load --input "$archive" >&2 || exit 1
