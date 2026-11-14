@@ -399,6 +399,18 @@ The rehearsal creates a fresh index, two invented source notes, a restricted con
 - `rust-rag export --output /private/location/evidence.jsonl` writes active passages to a new private file. It does not print the corpus. Treat the export as sensitive.
 - `init --upgrade` can save a pre-upgrade rollback copy in the state directory. `status` and `remove` report retained copies. These copies may contain passages you later remove from the live index. Use `discard-rollback --confirm` to remove them once you no longer need them.
 
+### Check that a folder sync finished
+
+Use `--require-complete` when a scheduled job needs to flag unfinished indexing. Add `--review` while troubleshooting to see each inspected file's outcome. Use the same state directory and source folder as your original ingest.
+
+```sh
+rust-rag ingest /path/to/sources --sync --require-complete --review --json
+```
+
+The command prints the ingest report and exits nonzero if the inventory is incomplete, reconciliation is blocked, sources are deferred, or a file fails. Check `inventory_complete`, `sync_reason`, `deferred_sources`, and `failures` to decide what to fix or retry.
+
+An incomplete run can still apply changes. For example, an unreadable edit can leave its previous revision searchable while a different file that was confirmed missing is removed from the index. Fix the reported source problem, rerun the command, and reopen the citation for the repaired file to confirm it points to the current revision.
+
 ### Upgrade, roll back, or uninstall
 
 Before replacing a binary, record its version and features with `rust-rag capabilities --json`. Keep the old binary and a verified pre-upgrade backup. For personal use, close other readers and writers before copying the private state directory. For shared use, use the service backup and recovery procedure. Run the new binary against a separate copy or test deployment first and confirm a known citation and the current grants before switching traffic.
