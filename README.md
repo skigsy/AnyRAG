@@ -74,7 +74,7 @@ See what’s indexed, what still needs enrichment, and what changed on the last 
 
 ## Quickstart: Rust personal search
 
-[Windows ZIP](docs/setup.md#install-the-windows-zip) · [Linux image](docs/setup.md#try-personal-search-in-the-linux-image) · [Build from source](docs/setup.md#install-from-this-repository) · [v1.1.2 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.1.2)
+[Windows ZIP](docs/setup.md#install-the-windows-zip) · [Linux image](docs/setup.md#try-personal-search-in-the-linux-image) · [Build from source](docs/setup.md#install-from-this-repository) · [v1.1.3 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.1.3)
 
 Start with local Markdown and text search. The default build needs no model or database service.
 

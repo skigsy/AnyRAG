@@ -6,7 +6,7 @@ Use this page to match a claim to a build, a workload, and a check you can run. 
 
 | Build | What you can verify |
 | --- | --- |
-| [v1.1.2 packages](https://github.com/skigsy/AnyRAG/releases/tag/v1.1.2) | Check the archive digests and signed build provenance for the Windows x64 ZIP and portable Linux amd64 image. |
+| [v1.1.3 packages](https://github.com/skigsy/AnyRAG/releases/tag/v1.1.3) | Check the archive digests and signed build provenance for the Windows x64 ZIP and portable Linux amd64 image. |
 | [v1.0.0 packages](https://github.com/skigsy/AnyRAG/releases/tag/v1.0.0) | Use the checksums and signed build provenance to identify the exact Windows ZIP and Linux image. The Windows receipt covers the standalone CLI. The Linux receipt covers the full operator workflow using the executable from the archived image. |
 
 [Verify and install the Windows ZIP](setup.md#install-the-windows-zip) · [Load the portable Linux image](../infra/private-vm.md#load-a-reviewed-release-archive)
@@ -16,11 +16,11 @@ Use this page to match a claim to a build, a workload, and a check you can run. 
 Download the ZIP or Linux image and `SHA256SUMS.txt` from the same release. Compare your archive hash to its entry. With the GitHub CLI installed and signed in, verify the build attestation against the source commit named by the release tag.
 
 ~~~sh
-archive=rust-rag-linux-amd64.tar   # Or rust-rag-1.1.2-windows-x64.zip
-source_commit=$(gh api repos/skigsy/AnyRAG/commits/v1.1.2 --jq .sha)
+archive=rust-rag-linux-amd64.tar   # Or rust-rag-1.1.3-windows-x64.zip
+source_commit=$(gh api repos/skigsy/AnyRAG/commits/v1.1.3 --jq .sha)
 gh attestation verify "$archive" --repo skigsy/AnyRAG \
   --source-digest "$source_commit" \
-  --source-ref refs/tags/v1.1.2 \
+  --source-ref refs/tags/v1.1.3 \
   --signer-workflow skigsy/AnyRAG/.github/workflows/release-provenance.yml \
   --deny-self-hosted-runners
 ~~~

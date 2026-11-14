@@ -153,7 +153,7 @@ jobs:
           python3 -B scripts/rehearse_operator.py \
             --binary target/debug/rust-rag --receipt "$receipt_dir/operator.json"
           finished=$(date +%s)
-          jq -e '.status == "pass" and (.checks | length) == 16 and all(.checks[]; . == "pass")' \
+          jq -e '.status == "pass" and (.checks | length) == 20 and all(.checks[]; . == "pass")' \
             "$receipt_dir/operator.json"
           jq -n --arg commit "$GITHUB_SHA" --arg rust "$(rustc --version)" \
             --arg os "$(lsb_release -ds)" --argjson setup_and_build_seconds "$((built - started))" \

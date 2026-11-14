@@ -16,6 +16,8 @@ from rehearse_shared import (
 
 
 PROSE = Note("prose.md", "RelayKit", "WeatherGasket")
+REVERSED = Note("reversed.md", "RelayKit", "CedarPump")
+RETIRED = Note("retired.md", "RelayKit", "OldClamp", "Superseded draft")
 HIGH = "RelayKit | owned_by | ServiceDesk"
 UPDATED = "RelayKit | requires | ReplacementBracket"
 
@@ -24,6 +26,12 @@ class OperatorModel(Model):
     def dispatch(self, path, body):
         if path == "/v1/chat/completions":
             context = json.loads(body["messages"][1]["content"])
+            if context.get("passage") == REVERSED.text:
+                return {"choices": [{"finish_reason": "stop", "message": {
+                    "content": json.dumps({"assertions": [{"subject": REVERSED.target,
+                        "predicate": "requires", "object": REVERSED.subject,
+                        "quote": REVERSED.quote}]}),
+                }}]}
             if "checks" in context:
                 expected = {note.quote for note in (PUMP, RELAY, BRACKET)
                             if context["document"] == note.text}
@@ -122,9 +130,12 @@ def write_policy(fixture, *, reader_allowed):
     os.replace(replacement, active)
 
 
-def shared(binary, root, openssl, port, check):
+def shared(binary, root, openssl, port, model, check):
     root.mkdir()
     fixture = Fixture(root, openssl, port)
+    profile = json.loads(fixture.profile.read_bytes())
+    del profile["graph"]["allow_unreviewed_model_links"]
+    fixture.profile.write_bytes(encoded(profile))
     endpoint = root / "extract.json"
     config = json.loads(endpoint.read_bytes())
     config["predicates"] = ["requires", "owned_by"]
@@ -183,7 +194,31 @@ def shared(binary, root, openssl, port, check):
               and PROSE.path not in reviewed and proposals()[1]["proposals"] == [])
         backup_code, backup = service.admin("backup", {})
         check("shared_backup", backup_code == 200)
-        write_policy(fixture, reader_allowed=False)
+        slow_note = Note("slow.md", "WeatherGasket", "SealKit")
+        slow_note.write(fixture.open)
+        barrier = model.hold(lambda payload: payload.get("passage") == slow_note.text)
+        service.sync(wait=False)
+        try:
+            barrier.wait()
+            query_code, search = service.query(graph=False)
+            seed = rows["seed.md"]
+            citation_code, citation = service.cite(seed)
+            busy_code, busy = service.admin("sync", {})
+            check("shared_reads_while_extraction_waits", query_code == citation_code == 200
+                  and by_path(search)["seed.md"]["chunk_id"] == seed["chunk_id"]
+                  and citation["evidence"]["revision"] == seed["revision"]
+                  and citation["evidence"]["text"] == seed["text"]
+                  and busy_code == 409 and busy["error"]["code"] == "WRITER_BUSY")
+            write_policy(fixture, reader_allowed=False)
+            check("shared_stalled_sync_respects_current_grants",
+                  service.query(graph=False)[1]["evidence"] == []
+                  and service.cite(seed)[0] == 404)
+        finally:
+            barrier.release.set()
+        interrupted = service.await_sync()
+        check("shared_sync_drops_result_after_policy_change",
+              interrupted["status"] == "incomplete" and interrupted["reason"] == "ACCESS_CHANGED")
+        (fixture.open / slow_note.path).unlink()
         check("revocation_applies_to_saved_citations_and_queue", service.query()[1]["evidence"] == []
               and service.cite(routine)[0] == 404 and proposals()[0] == 403)
         declare("routine.md", UPDATED)
@@ -199,6 +234,25 @@ def shared(binary, root, openssl, port, check):
               and service.query()[1]["evidence"] == []
               and by_path(service.query("admin")[1])["routine.md"]["graph_support"]["assertion"]["quote"]
               == UPDATED)
+        active = fixture.policy / "current.json"
+        policy = json.loads(active.read_bytes())
+        policy["version"] += 1
+        grant = policy["collections"]["open"]
+        del grant["graph_publication"]
+        grant["graph_review_subjects"] = ["admin"]
+        data = encoded(policy)
+        (fixture.policy / "versions" / f"{policy['version']}.json").write_bytes(data)
+        replacement = fixture.policy / "next.json"
+        replacement.write_bytes(data)
+        os.replace(replacement, active)
+        REVERSED.write(fixture.open)
+        RETIRED.write(fixture.open)
+        check("shared_graph_defaults_to_review",
+              service.sync()["status"] == "complete"
+              and not any(row.get("graph_support") for row in service.query("admin")[1]["evidence"])
+              and proposals()[0] == 403
+              and {REVERSED.path, RETIRED.path} <= {row["path"] for row in
+                                                    proposals("admin")[1]["proposals"]})
     finally:
         service.stop()
 
@@ -232,7 +286,8 @@ def main():
         try:
             endpoint = None
             if not args.personal_only:
-                server = OperatorModel((PUMP, RELAY, BRACKET, PROSE)).serve()
+                model = OperatorModel((PUMP, RELAY, BRACKET, PROSE, RETIRED))
+                server = model.serve()
                 endpoint = root / "relations.json"
                 endpoint.write_bytes(encoded({
                     "url": f"http://127.0.0.1:{server.server_port}/v1/chat/completions",
@@ -241,7 +296,7 @@ def main():
                 }))
             local(binary, root, endpoint, check)
             if server is not None:
-                shared(binary, root / "shared", args.openssl, server.server_port, check)
+                shared(binary, root / "shared", args.openssl, server.server_port, model, check)
             receipt["status"] = "pass"
         except CheckFailed as error:
             receipt.update(status="fail", failed_check=str(error))

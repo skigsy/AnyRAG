@@ -407,7 +407,7 @@ class Fixture:
             "sources": {name: {"kind": "folder", "root": str(root / name)} for name in ("open", "private")},
             "endpoints": {name: str(root / f"{name}.json") for name in ("extract", "answer")},
             "embedding": {"provider": "endpoint", "name": "embedding", "config": str(root / "embedding.json")},
-            "graph": {"mode": "typed", "extractor": "extract"},
+            "graph": {"mode": "typed", "extractor": "extract", "allow_unreviewed_model_links": True},
         }
         self.profile.write_bytes(encoded(profile))
 

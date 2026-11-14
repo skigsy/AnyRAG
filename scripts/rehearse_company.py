@@ -111,7 +111,7 @@ def prepare(root, args):
         "sources": {name: {"kind": "folder", "root": str(root / name)}
                     for name in ("reference", "restricted")},
         "endpoints": {name: str(root / f"{name}.json") for name in ("relations", "answer")},
-        "graph": {"mode": "typed", "extractor": "relations"},
+        "graph": {"mode": "typed", "extractor": "relations", "allow_unreviewed_model_links": True},
     })
     tokens = identities(args.openssl, root, SUBJECTS)
     return Service(args.binary, profile, tokens, request_timeout=135, sync_timeout=180)
