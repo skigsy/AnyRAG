@@ -35,10 +35,12 @@
 !crates/rust-rag/src/ocr.rs
 !crates/rust-rag/src/ocr/wire.rs
 !crates/rust-rag/src/pdf.rs
+!crates/rust-rag/src/relationship_path.rs
 !crates/rust-rag/src/sdk.rs
 !crates/rust-rag/src/shared.rs
 !crates/rust-rag/src/shared_auth.rs
 !crates/rust-rag/src/shared_backup.rs
 !crates/rust-rag/src/shared_graph_policy.rs
+!crates/rust-rag/src/shared_relationship.rs
 !crates/rust-rag/src/store.rs
 !crates/rust-rag/src/vector.rs

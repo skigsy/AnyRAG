@@ -34,7 +34,7 @@ Choose the features you need. Re-run install with the same options and `--force`
 Put the standalone Windows x64 ZIP and its release checksum manifest in the same local folder. In PowerShell, change to that folder and run:
 
 ~~~powershell
-$archive = 'rust-rag-1.1.0-windows-x64.zip'
+$archive = 'rust-rag-1.1.1-windows-x64.zip'
 $expected = (Get-Content -LiteralPath 'SHA256SUMS.txt' |
   Where-Object { $_ -match ('^[a-fA-F0-9]{64}  ' + [regex]::Escape($archive) + '$') } |
   ForEach-Object { ($_ -split '  ', 2)[0] })
@@ -51,7 +51,7 @@ The ZIP supplies `rust-rag.exe` and bundles SQLite. The install folder and PATH 
 
 ## Try personal search in the Linux image
 
-On a Linux amd64 machine with Docker, [verify and load the v1.1.0 image](../infra/private-vm.md#load-a-reviewed-release-archive). In the same shell, as a regular user with Docker access, create a private workspace and run an offline search:
+On a Linux amd64 machine with Docker, [verify and load the v1.1.1 image](../infra/private-vm.md#load-a-reviewed-release-archive). In the same shell, as a regular user with Docker access, create a private workspace and run an offline search:
 
 ~~~sh
 work=$(mktemp -d) || exit 1
@@ -436,7 +436,7 @@ Query results are candidate context, including weak matches. Verify the cited te
 Build the minimal x64 archive with [the release builder](../scripts/build_native_release.py) from a reviewed commit. Choose a short output path outside sync folders. The builder creates two MSVC build trees under the output parent, and deep paths can prevent the bundled SQLite object from being written. Keep the ZIP, SHA-256 manifest, SBOM, and provenance together. For the clean client check, copy the ZIP and [test script](../scripts/test_native_windows.ps1) to the guest. Use a standard account with a Unicode profile path containing spaces and a locally redirected Documents folder. Disconnect networking before running.
 
 ~~~powershell
-powershell.exe -NoProfile -File .\test_native_windows.ps1 -Archive .\rust-rag-1.1.0-windows-x64.zip -ExpectedSha256 <recorded-ZIP-SHA256>
+powershell.exe -NoProfile -File .\test_native_windows.ps1 -Archive .\rust-rag-1.1.1-windows-x64.zip -ExpectedSha256 <recorded-ZIP-SHA256>
 ~~~
 
 Record Defender and SmartScreen observations for the exact distribution bytes. The isolated Windows container test and host walkthrough are separate from this guest check.
