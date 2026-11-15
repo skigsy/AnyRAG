@@ -46,11 +46,69 @@ fn citation_count(path: &[&Relation<'_>]) -> usize {
 }
 
 /// The admission check must use the reader's current signed policy and exact source span.
-pub(crate) fn resolve<'a>(
+#[cfg(test)]
+fn resolve<'a>(
     relations: &'a [Relation<'a>],
     request: &Lookup<'_>,
     readable: impl Fn(&str, &Citation<'_>) -> bool,
 ) -> Outcome<'a> {
+    resolve_matching(relations, request, readable, |_, _| true, false)
+}
+
+pub(crate) fn resolve_matching<'a>(
+    relations: &'a [Relation<'a>],
+    request: &Lookup<'_>,
+    readable: impl Fn(&str, &Citation<'_>) -> bool,
+    matches_step: impl Fn(usize, &Relation<'_>) -> bool,
+    check_all_paths: bool,
+) -> Outcome<'a> {
+    let traversal = Lookup {
+        citation_limit: if check_all_paths {
+            usize::MAX
+        } else {
+            request.citation_limit
+        },
+        ..*request
+    };
+    let mut selected = None;
+    let mut outside_scope = false;
+    let mut ambiguous = false;
+    let complete = visit_paths(relations, &traversal, readable, matches_step, |path| {
+        let tags: BTreeSet<_> = path
+            .iter()
+            .flat_map(|edge| edge.required_scope.iter().copied())
+            .collect();
+        if tags != *request.scope {
+            outside_scope = true;
+        } else if selected.as_ref().is_some_and(|previous| previous != path) {
+            ambiguous = true;
+            return false;
+        } else {
+            selected = Some(path.to_vec());
+        }
+        true
+    });
+    if ambiguous {
+        return Outcome::Ambiguous;
+    }
+    if !complete {
+        return Outcome::LimitReached;
+    }
+    match selected {
+        Some(path) if citation_count(&path) > request.citation_limit => Outcome::LimitReached,
+        Some(path) => Outcome::Value(path),
+        None if outside_scope => Outcome::OutsideRequestedScope,
+        None => Outcome::NoSupportedValue,
+    }
+}
+
+pub(crate) fn visit_paths<'a>(
+    relations: &'a [Relation<'a>],
+    request: &Lookup<'_>,
+    readable: impl Fn(&str, &Citation<'_>) -> bool,
+    matches_step: impl Fn(usize, &Relation<'_>) -> bool,
+    mut visit: impl FnMut(&[&'a Relation<'a>]) -> bool,
+) -> bool {
     if request.root.is_empty()
         || request.terminal_predicates.is_empty()
         || request.min_steps == 0
@@ -58,7 +116,7 @@ pub(crate) fn resolve<'a>(
         || request.max_steps > 3
         || request.citation_limit == 0
     {
-        return Outcome::NoSupportedValue;
+        return true;
     }
     let mut adjacency = BTreeMap::<&str, Vec<&Relation<'_>>>::new();
     for edge in relations {
@@ -71,20 +129,19 @@ pub(crate) fn resolve<'a>(
             adjacency.entry(edge.subject).or_default().push(edge);
         }
     }
-    let mut pending = vec![(request.root, Vec::new(), false)];
-    let mut selected = None;
-    let mut outside_scope = false;
+    let mut pending = vec![(request.root, Vec::new())];
     let mut examined = 0;
-    while let Some((node, path, wrong_scope)) = pending.pop() {
+    while let Some((node, path)) = pending.pop() {
         let Some(edges) = adjacency.get(node) else {
             continue;
         };
         for edge in edges {
             examined += 1;
             if examined > 1_000 {
-                return Outcome::LimitReached;
+                return false;
             }
-            if edge.object == request.root
+            if !matches_step(path.len(), edge)
+                || edge.object == request.root
                 || edge.object == node
                 || path
                     .iter()
@@ -100,35 +157,18 @@ pub(crate) fn resolve<'a>(
             if citation_count(&next) > request.citation_limit {
                 continue;
             }
-            let wrong_scope = wrong_scope
-                || edge
-                    .required_scope
-                    .iter()
-                    .any(|value| !request.scope.contains(value));
             if next.len() >= request.min_steps
                 && request.terminal_predicates.contains(&edge.predicate)
+                && !visit(&next)
             {
-                let scope_proven = request.scope.iter().all(|value| {
-                    next.iter().any(|step| step.required_scope.contains(value))
-                });
-                if wrong_scope || !scope_proven {
-                    outside_scope = true;
-                } else if selected.as_ref().is_some_and(|previous| previous != &next) {
-                    return Outcome::Ambiguous;
-                } else {
-                    selected = Some(next.clone());
-                }
+                return true;
             }
             if next.len() < request.max_steps {
-                pending.push((edge.object, next, wrong_scope));
+                pending.push((edge.object, next));
             }
         }
     }
-    match selected {
-        Some(path) => Outcome::Value(path),
-        None if outside_scope => Outcome::OutsideRequestedScope,
-        None => Outcome::NoSupportedValue,
-    }
+    true
 }
 
 #[cfg(test)]
@@ -243,6 +283,24 @@ mod tests {
         assert_eq!(
             resolve(&edges[..1], &request, reader),
             Outcome::NoSupportedValue
+        );
+        let extra_context = [citation("second-context"), citation("third-context")];
+        let [first, second, _, competing, _] = edges;
+        let competing_paths = [
+            first,
+            second,
+            Relation {
+                binding_citations: &extra_context,
+                ..competing
+            },
+        ];
+        assert_eq!(
+            resolve(&competing_paths, &request, reader),
+            Outcome::Value(vec![&competing_paths[0], &competing_paths[1]])
+        );
+        assert_eq!(
+            resolve_matching(&competing_paths, &request, reader, |_, _| true, true),
+            Outcome::Ambiguous
         );
     }
 }

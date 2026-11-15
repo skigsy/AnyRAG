@@ -14,7 +14,7 @@ The image context allowlists Rust source and packaging files. For a release, rec
 
 ### Load a reviewed release archive
 
-Download `rust-rag-linux-amd64.tar`, `linux-image.json`, and `SHA256SUMS.txt` from the [v1.1.3 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.1.3). With Docker and `jq` installed, run this from their folder. Check both transferred files before loading. Different Docker image stores may report the reviewed image ID or its Linux amd64 config digest. [Verify package provenance](../docs/evidence.md#verify-package-provenance)
+Download `rust-rag-linux-amd64.tar`, `linux-image.json`, and `SHA256SUMS.txt` from the [v1.2.0 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.2.0). With Docker and `jq` installed, run this from their folder. Check both transferred files before loading. Different Docker image stores may report the reviewed image ID or its Linux amd64 config digest. [Verify package provenance](../docs/evidence.md#verify-package-provenance)
 
 ```sh
 archive=rust-rag-linux-amd64.tar
@@ -26,7 +26,7 @@ RUST_RAG_IMAGE=$(
     test "$(printf '%s\n' "$entry" | wc -l)" -eq 1 || exit 1
     printf '%s\n' "$entry" | sha256sum --check --strict >&2 || exit 1
   done
-  loaded_tag=$(jq -er '.image_tag | select(test("^any-rag-local:1\\.1\\.3-[a-f0-9]{12}$"))' "$metadata") || exit 1
+  loaded_tag=$(jq -er '.image_tag | select(test("^any-rag-local:1\\.2\\.0-[a-f0-9]{12}$"))' "$metadata") || exit 1
   reviewed_id=$(jq -er '.image_id | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata") || exit 1
   image_config=$(jq -er '.config_digest | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata") || exit 1
   docker load --input "$archive" >&2 || exit 1
@@ -280,6 +280,8 @@ Admin sync status includes per-collection graph and vector progress, plus any pr
 
 ### Review shared graph relationships
 
+For a browser workflow, use the [shared Graph review dashboard](review/README.md) through a private gateway with per-user sign-in. You can also use the signed API from a terminal.
+
 Use the [v1.0.0 Linux image](#load-a-reviewed-release-archive) or a current source build with shared service support. Use a folder-backed collection with [typed graph enabled](#enable-company-graph-rag) and a configured extractor. Merge the following keys into the collection grant in a new access policy version, preserving any other required read roles and endpoint grants. Give catalog write access only to people or systems authorized to declare current relationships. Each trusted path is an exact collection-relative filename. In this example the issuer's reviewer subject maps to `maintenance-reviewer` in the top-level `subjects` policy map. The collection grants that role both read and review permissions. [Rehearse signed review and recovery on synthetic data](../docs/rehearsal.md)
 
 ```json
@@ -351,6 +353,56 @@ The service returns one directed path with its terminal `value`, exact relation 
 
 For a link that depends on a setting or a source-backed name, place a `reviewed_relationships` entry in the collection grant of an administrator policy version. Each entry has `subject`, `predicate`, `object`, one `source` object, a `context` array, and an optional `scope` array of exact strings. The source and context objects each contain `chunk_id`, `revision`, and a literal `quote`. Put both exact entity names in the source quote, and cite the operating condition in context. Keep a conditional link out of the ordinary unqualified approval lane. Request scope selects applicability independently of collection permissions. Edits or deletion of any cited chunk retire the binding on sync. Review the replacement evidence before adding a new binding.
 
+In a build that includes signed scoped review, a reviewer can approve a queued relationship for a setting directly. Add `applicability` to the existing signed approval request. Use `scope` for the exact setting tags and `context` for one to four anchors from the same collection. Each anchor contains the reopened citation's `chunk_id` and `revision`, source-relative character offsets `start` and `end`, and `quote_sha256` for the exact UTF-8 quote. Review the proposal and the context together. The server verifies the quoted range and the current file. The result is `approved_scoped`. Run a sync to refresh the review queue before using this feature on an existing collection. An edit to either cited source requires re-review before you rely on the link.
+
+For this example, set `proposal` to the reviewed row from the signed queue, `binding` to the reopened evidence envelope for the condition, and `quote` to the complete text of the selected indexed passage. The shell expands those variables through `jq`. The hash covers the UTF-8 passage exactly.
+
+```sh
+quote_hash=$(printf '%s' "$quote" | sha256sum | cut -d ' ' -f 1)
+decision=$(jq -n --argjson p "$proposal" --argjson b "$binding" --arg hash "$quote_hash" '
+  {collection:$p.collection, proposal_id:$p.proposal_id, decision:"approve",
+   revision:$p.revision, fingerprint:$p.fingerprint, policy_version:$p.policy_version,
+   idempotency_key:("review-" + $p.proposal_id),
+   applicability:{scope:["night shift"],context:[{
+     chunk_id:$b.evidence.chunk_id, revision:$b.evidence.revision,
+     start:$b.evidence.start, end:$b.evidence.end, quote_sha256:$hash}]}}')
+rust_rag_request POST /v1/graph-review/decide -H 'Content-Type: application/json' --data "$decision"
+```
+
+If the context changes while the edge source remains current, request `{"collection":"reference","scoped":true}` from `/v1/graph-review/list`. A scoped review with `reason: "stale_scoped_context"` includes the direction and exact source quote for re-review. Select the replacement context, use the scoped review's ID and current fingerprint, and add `"replace_scope": true` to the approval with a new idempotency key. This creates a new signed decision. If the edge source itself changed, review the new proposal from the ordinary queue.
+
+Use the same signed query input at `POST /v1/relationship/ask` to opt into plain-language lookup. Start with a supported question such as “Who owns the valve used by the pump required by Quarry Desk during winter standby?” Use complete entity names and express a setting with “during.” If the response requests clarification, resubmit the original question with the exact offered choice in `clarification`. The service checks the choice against current visible evidence. A response with `plan.status` set to `ordinary_search` contains the ordinary query result under `result`.
+
+To record a terminal fact for a directed one-link lookup, use `POST /v1/graph-review/fact` as a signed reviewer. Get the current collection `fingerprint` and `policy_version` from the review queue. Send `action: "add"`, the collection, fingerprint, policy version, a unique `idempotency_key`, canonical `subject`, `predicate`, exact `scope`, a `primary` quote anchor, and any `context` anchors. For `kind: "explicit_negative"`, set `target` to the named object the passage expressly rules out. For `kind: "documented_absence"`, cite the authoritative statement that the field is unrecorded or unassigned for this setting. A concurrent positive supporting the same answer can produce `conflict`. Withdraw an incorrect decision with `action: "withdraw"`, its `fact_id`, and current signed review metadata. A collection rollback preserves withdrawals in the service control database.
+
+Use `action: "add_alias"` on the same signed review endpoint to review an alternative name for structured lookup. Send the same collection, fingerprint, policy version and idempotency key, plus `alias_kind` (`"entity"` or `"setting"`), `surface`, `canonical` and one exact `primary` quote anchor. The reviewer verifies that the two names mean the same thing. The server checks that both names appear in the current cited span. Enter the canonical name exactly as it appears in the reviewed graph or setting record.
+
+In `POST /v1/relationship`, an entity alias can appear in `root` or `target`, and a setting alias can appear in `scope`. The signed plain-language route also accepts reviewed aliases in supported question forms with an explicit setting, such as “Who owns the welcome counter during late watch?” A successful alias-based lookup returns `name_bindings` with exact citations that count toward the passage budget. Only the collection holding the binding can contribute its result. Competing meanings can require clarification. Reopen a binding by its chunk ID. Edits to the cited alias retire it. To withdraw an alias, use the same withdrawal request with the returned `fact_id`. Ordinary Graph reads its standard edge inventory.
+
+### Confirm a relationship interpretation
+
+On the v1.2.0 Linux image or a source build with `shared`, an application or coding agent can propose an explicit interpretation at `POST /v1/relationship/guided`. Send a `request` object using the typed contract, with one terminal predicate and exact ordered `path_predicates`. The optional `via` array contains one entry per intermediate position, in order. Use an exact entity name for a named intermediate and `null` for a position the request leaves open.
+
+```json
+{
+  "request": {
+    "root": "Lobby Desk",
+    "path_predicates": ["depends_on", "requires"],
+    "terminal_predicates": ["requires"],
+    "min_steps": 2,
+    "max_steps": 2,
+    "via": ["Operations Desk"],
+    "scope": ["public matinee"]
+  }
+}
+```
+
+A `confirm_relationship` response supplies the interpretation, including canonical names for any selected aliases. Show the caller that interpretation. To run it, resend the original `request` with the returned `interpretation` as `confirmed`. The lookup verifies current permissions, scope and source revisions again. HTTP 409 `RELATIONSHIP_CHANGED` requires a new preview. The service stores no preview state and runs no model. It confirms a caller-supplied interpretation against the current graph. The caller is responsible for checking what the user meant. The [shared dashboard](review/README.md#confirm-a-read-only-lookup) provides a browser route for straightforward ordered lookups.
+
+Keep a name from the user's question in `root` if it is an unambiguous reviewed alias. If the user has chosen a specific canonical referent, put that referent in `root` and the original name in `root_alias`. The service requires a current reviewed mapping in a collection that reader is allowed to use. `root_identity.kind` identifies a `reviewed_alias` or a `caller_supplied` entity. Treat `identity_unverified: true` as a caller-supplied choice. Confirmation binds the alias proof revision through the opaque `root_alias_version` in the returned interpretation. Keep it under `confirmed`. A confirmed reviewed alias contributes its exact source quote under `name_bindings` and counts toward the evidence budget.
+
+To require a particular directed chain, set `path_predicates` in traversal order and set both hop bounds to the array length. Keep the last predicate in `terminal_predicates`. For example, a three-edge relation from a desk to its supplier's owner might require `["requires","uses","owned_by"]` if those are the exact relationships in the sources. Scope and citation checks still apply to every hop.
+
 For model-generated answers, set `"explicit_answer_state": true` in the selected chat endpoint configuration. The structured response keeps `insufficient_evidence` for missing values, with optional `absence_evidence` when the model cites the recorded absence. An explicit negative can still be `answered`. Check the underlying citations when using model answers in automation.
 
 ### Upgrade or roll back the service
@@ -358,6 +410,8 @@ For model-generated answers, set `"explicit_answer_state": true` in the selected
 Keep the previous image digest, its profile and state, and a verified backup. Test the new image with a separate copy of the state and keep it off the client listener. If `service-doctor` reports a different deployment, provision a fresh state directory and run a complete sync against authoritative sources and current policy. A new graph extractor can change the binding even when the endpoint and model are unchanged. Backups from the previous binding stay with its compatible image and profile. Verify required graph paths and exact citations before switching traffic.
 
 To roll back, close the client listener or remove the service from its proxy upstream. Start the previous image with its compatible profile and state. Restore its verified backup, run a complete sync against current sources and policy, and explicitly reopen. Check current citations, deleted sources, and denied identities before restoring client traffic. Keep the previous and new indexes separate throughout the cutover.
+
+When moving from v1.1.3 to v1.2.0, keep a verified v1.1.3 backup and its image before admitting new guided review decisions. Roll back with that backup and the previous image. Leave state written by the newer service with the new version.
 
 The restored service rebuilds work it needs from current sources. Budget time and provider calls for fresh graph extraction or embeddings, since the previous index does not reuse enrichment produced only by the new image. Time the sync and first verified citation on a representative corpus before scheduling the cutover.
 

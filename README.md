@@ -12,13 +12,13 @@ Start with a working pipeline that indexes your files, finds relevant passages, 
 
 [![AnyRAG building blocks: keyword search, PDF and Word, embeddings and reranking, cited answers, typed Graph RAG, shared access, and recovery. Solo, team, and company setups can combine the same blocks.](docs/assets/setup-progression.svg)](docs/assets/setup-progression.svg)
 
-| Example build | What you get |
+| I want to… | Start here |
 | --- | --- |
-| [Search my notes](docs/field-guide.md#personal-obsidian-recipe) | Find an exact passage in a folder or Obsidian vault on your laptop. No model required. |
-| [Give my team a private handbook search](infra/private-vm.md) | Share one search service and control which collections each reader can see. |
-| [Trace dependencies across engineering docs](infra/private-vm.md#enable-company-graph-rag) | Add Graph RAG to private team search. Follow a chain across files and open the source for each step. |
+| Search my notes or Obsidian vault | [Index a folder and reopen a citation](docs/setup.md#search-your-own-files). Markdown and text work without a model. |
+| Give my team private search | [Index a shared collection and search as a reader](docs/setup.md#search-a-private-team-collection). Collection grants apply to search and citation reads. |
+| Trace a relationship across files | [Confirm a guided Graph RAG lookup](docs/setup.md#confirm-a-relationship-across-files). Review the proposed interpretation and open the proof for each step. |
 
-[Choose a different combination](docs/field-guide.md#decision-tree)
+Start with one folder and a question you can check. Add file formats, embeddings, or a model as you need them. [Choose a different combination](docs/field-guide.md#decision-tree)
 
 ### Set it up with an agent
 
@@ -58,13 +58,13 @@ You choose the files, the model if you need one, who gets access, and where it r
 
 | Feature | What you can do |
 | --- | --- |
-| [Resolve a scoped relationship](infra/private-vm.md#look-up-a-reviewed-relationship) | Follow a directed chain through current, reviewed sources and cite the setting where it applies. |
+| [Confirm a guided relationship](infra/private-vm.md#confirm-a-relationship-interpretation) | Preview a directed chain in its setting, confirm the interpretation, and reopen its current citations. The Linux image includes the signed API and optional shared MCP. |
 | [Reopen citations in MCP](docs/setup.md#search-a-personal-index-from-an-mcp-client) | Ask your assistant to reopen a saved citation and verify the exact passage. |
 | [Preview indexed sources](docs/setup.md#inspect-what-the-dashboard-indexed) | Open a document's indexed passages in the dashboard and review files that were skipped or failed. |
 | [Schedule folder sync](infra/README.md#keep-a-personal-folder-current-on-linux) | Keep a personal index current with a Linux timer. |
 | [Search Excel by cell](docs/setup.md#search-an-excel-workbook) | Index visible worksheets and cite the exact cell behind a result. |
 
-Use the linked source-build instructions for these features.
+Check the linked setup for package and build options. Guided lookup runs after an explicit confirmation.
 
 ## Live operator dashboard
 
@@ -74,7 +74,7 @@ See what’s indexed, what still needs enrichment, and what changed on the last 
 
 ## Quickstart: Rust personal search
 
-[Windows ZIP](docs/setup.md#install-the-windows-zip) · [Linux image](docs/setup.md#try-personal-search-in-the-linux-image) · [Build from source](docs/setup.md#install-from-this-repository) · [v1.1.3 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.1.3)
+[Windows ZIP](docs/setup.md#install-the-windows-zip) · [Linux image](docs/setup.md#try-personal-search-in-the-linux-image) · [Build from source](docs/setup.md#install-from-this-repository) · [v1.2.0 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.2.0)
 
 Start with local Markdown and text search. The default build needs no model or database service.
 

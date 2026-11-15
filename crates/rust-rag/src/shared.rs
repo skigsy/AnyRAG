@@ -873,6 +873,7 @@ impl Service {
             CREATE TABLE IF NOT EXISTS service_meta (id INTEGER PRIMARY KEY CHECK (id=1), binding TEXT NOT NULL,
                 policy_version INTEGER NOT NULL, policy_digest TEXT NOT NULL, maintenance INTEGER NOT NULL,
                 reconciled_policy TEXT, restore_pending INTEGER NOT NULL);")?;
+        relationship::fact::install(&meta)?;
         meta.execute(
             "INSERT OR IGNORE INTO service_meta VALUES (1,?1,0,'',0,NULL,0)",
             [&binding],
@@ -1615,13 +1616,17 @@ impl Service {
             return Err(REVIEW_STALE);
         }
         let fingerprint = self.publication_fingerprint(rules).map_err(unavailable)?;
-        let mut result = graph::shared_review_queue(
-            &db,
-            &fingerprint,
-            request.after.as_deref(),
-            request.limit.unwrap_or(20),
-        )
-        .map_err(graph_review_error)?;
+        let limit = request.limit.unwrap_or(20);
+        let mut result = if request.scoped {
+            if !(1..=100).contains(&limit) {
+                return Err(REVIEW_INVALID);
+            }
+            relationship::review_scoped_links(&db, &fingerprint, limit, request.after.as_deref())
+                .map_err(unavailable)?
+        } else {
+            graph::shared_review_queue(&db, &fingerprint, request.after.as_deref(), limit)
+                .map_err(graph_review_error)?
+        };
         let rows = result["proposals"]
             .as_array_mut()
             .ok_or_else(|| unavailable("missing proposals"))?;
@@ -1634,6 +1639,7 @@ impl Service {
         }
         result["collection"] = json!(request.collection);
         result["policy_version"] = json!(policy.version);
+        result["fingerprint"] = json!(fingerprint);
         self.confirm_graph_reviewer(principal, &request.collection, &digest)?;
         Ok(result)
     }
@@ -1681,19 +1687,32 @@ impl Service {
         let tx = db
             .transaction_with_behavior(Immediate)
             .map_err(unavailable)?;
-        let result = graph::decide_shared(
-            &tx,
-            root,
-            &graph::SharedDecision {
-                id: &request.proposal_id,
-                approve: matches!(request.decision, ReviewDecision::Approve),
-                revision: &request.revision,
-                fingerprint: &fingerprint,
-                policy_version: policy.version,
-                actor: &principal.subject,
-                idempotency_key: &request.idempotency_key,
-            },
-        )
+        let applicability = request
+            .applicability
+            .as_ref()
+            .map(|value| {
+                if !matches!(request.decision, ReviewDecision::Approve) {
+                    return Err(REVIEW_INVALID);
+                }
+                value.validate(&tx, root)?;
+                serde_json::to_string(value).map_err(unavailable)
+            })
+            .transpose()?;
+        let decision = graph::SharedDecision {
+            id: &request.proposal_id,
+            approve: matches!(request.decision, ReviewDecision::Approve),
+            revision: &request.revision,
+            fingerprint: &fingerprint,
+            policy_version: policy.version,
+            actor: &principal.subject,
+            idempotency_key: &request.idempotency_key,
+            applicability: applicability.as_deref(),
+        };
+        let result = if request.replace_scope {
+            graph::replace_scoped_review(&tx, root, decision)
+        } else {
+            graph::decide_shared(&tx, root, &decision)
+        }
         .map_err(graph_review_error)?;
         self.confirm_graph_reviewer(principal, &request.collection, &digest)?;
         tx.commit().map_err(unavailable)?;
@@ -2274,6 +2293,7 @@ struct Query {
     answer_endpoint: Option<String>,
     #[serde(default)]
     rerank: bool,
+    clarification: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2293,6 +2313,8 @@ struct RetryEnrichment {
 #[serde(deny_unknown_fields)]
 struct GraphReviewList {
     collection: String,
+    #[serde(default)]
+    scoped: bool,
     limit: Option<usize>,
     after: Option<String>,
 }
@@ -2314,6 +2336,9 @@ struct GraphReviewRequest {
     fingerprint: String,
     policy_version: i64,
     idempotency_key: String,
+    applicability: Option<relationship::Applicability>,
+    #[serde(default)]
+    replace_scope: bool,
 }
 
 #[derive(Deserialize)]
@@ -2365,13 +2390,28 @@ fn route(service: &Arc<Service>, request: &mut tiny_http::Request) -> ApiResult<
         .map(|h| h.value.as_str());
     let principal = service.auth.authenticate(header)?;
     let response = match (request.method(), path.as_str()) {
-        (&Post, "/v1/query") => service.query(&principal, request_json(request)?)?,
+        (&Post, "/v1/query") => {
+            let query: Query = request_json(request)?;
+            if query.clarification.is_some() {
+                return Err(relationship::INVALID_LOOKUP);
+            }
+            service.query(&principal, query)?
+        }
         (&Post, "/v1/relationship") => service.relationship(&principal, request_json(request)?)?,
+        (&Post, "/v1/relationship/guided") => {
+            service.guided_relationship(&principal, request_json(request)?)?
+        }
+        (&Post, "/v1/relationship/ask") => {
+            service.relationship_question(&principal, request_json(request)?)?
+        }
         (&Post, "/v1/graph-review/list") => {
             service.graph_review_list(&principal, request_json(request)?)?
         }
         (&Post, "/v1/graph-review/decide") => {
             service.graph_review_decide(&principal, request_json(request)?)?
+        }
+        (&Post, "/v1/graph-review/fact") => {
+            service.graph_review_fact(&principal, request_json(request)?)?
         }
         (&Get, "/v1/admin/status") => service.admin_status(&principal)?,
         (&Post, "/v1/admin/sync") => return Ok((202, service.start_sync(principal)?)),

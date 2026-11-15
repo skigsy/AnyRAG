@@ -624,6 +624,8 @@ fn company_graph_decision(proposal: &Value, decision: &str, key: &str) -> Value 
 #[test]
 fn signed_relationship_checks_scope_and_every_current_binding() {
     const ROUTE: &str = "/v1/relationship";
+    const ASK: &str = "/v1/relationship/ask";
+    const GUIDED: &str = "/v1/relationship/guided";
     const EDGE: &str = "Operations Desk requires Access Panel.";
     const CONDITION: &str = "The Access Panel requirement applies to public matinees.";
     let model = tiny_http::Server::http("127.0.0.1:0").unwrap();
@@ -632,7 +634,11 @@ fn signed_relationship_checks_scope_and_every_current_binding() {
     profile["graph"]["extractor"] = json!("chat");
     fs::write(&fixture.profile, profile.to_string()).unwrap();
     let root = fixture.root.path();
-    fs::write(root.join("restricted/secret.md"), "Restricted venue handbook.").unwrap();
+    fs::write(
+        root.join("restricted/secret.md"),
+        "Restricted venue handbook.",
+    )
+    .unwrap();
     fs::write(root.join("restricted/private-scope.md"), CONDITION).unwrap();
     fs::write(root.join("open/scope.md"), CONDITION).unwrap();
     fs::write(root.join("open/edge.md"), EDGE).unwrap();
@@ -656,27 +662,79 @@ fn signed_relationship_checks_scope_and_every_current_binding() {
             "min_steps":2,"max_steps":2,"scope":["public matinee"],"limit":3});
         let lookup = |token, body| api(address, token, ROUTE, Some(body));
         let read = |body| lookup(Some(ALICE.as_str()), body);
+        let guide = |body| api(address, Some(ALICE.as_str()), GUIDED, Some(body));
+        let guided_request = json!({"root":"Lobby Desk","terminal_predicates":["requires"],
+            "path_predicates":["depends_on","requires"],
+            "min_steps":2,"max_steps":2,"scope":["public matinee"],"limit":3});
+        let ask = |question| {
+            api(
+                address,
+                Some(ALICE.as_str()),
+                ASK,
+                Some(json!({"question":question,"graph":true,"limit":3})),
+            )
+        };
+        assert_eq!(
+            api(
+                address,
+                None,
+                ASK,
+                Some(json!({"question":"Who owns Lobby Desk?"}))
+            )
+            .0,
+            401
+        );
+        let vague = "Summarize the venue records.";
+        let ordinary = api(
+            address,
+            Some(ALICE.as_str()),
+            "/v1/query",
+            Some(json!({"question":vague,"graph":true,"limit":3})),
+        );
+        assert_eq!(ordinary.0, 200);
+        assert_eq!(ask(vague).1["result"], ordinary.1);
+        let scoped = "What does Operations Desk require during public matinee?";
+        let absent_scope = ask(scoped);
         assert_eq!(lookup(None, request.clone()).0, 401);
         let absent = read(request.clone());
         assert_eq!(absent.0, 200, "{}", absent.1);
         assert_eq!(absent.1["status"], "no_supported_value");
+        let guided_absent = guide(json!({"request":guided_request}));
+        assert_eq!(guided_absent.1["status"], "no_supported_value");
+        assert_eq!(
+            api(
+                address,
+                None,
+                GUIDED,
+                Some(json!({"request":guided_request}))
+            )
+            .0,
+            401
+        );
         let anchor = |token: &str, path: &str, quote: &str| {
             let result = query(address, token, quote, false);
             let item = result["evidence"]
-                .as_array().unwrap().iter().find(|item| item["path"] == path)
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["path"] == path)
                 .unwrap_or_else(|| panic!("Missing {path}: {result}"));
             json!({"chunk_id":item["chunk_id"],"revision":item["revision"],"quote":quote})
         };
         let source = anchor(ALICE.as_str(), "edge.md", EDGE);
         let visible = anchor(ALICE.as_str(), "scope.md", CONDITION);
         let hidden = anchor(BOB.as_str(), "private-scope.md", CONDITION);
-        let relationship = |context: &Value| json!({"subject":"Operations Desk","predicate":"requires",
-            "object":"Access Panel","source":source,"context":[context],"scope":["public matinee"]});
+        let relationship = |context: &Value| {
+            json!({"subject":"Operations Desk","predicate":"requires",
+            "object":"Access Panel","source":source,"context":[context],"scope":["public matinee"]})
+        };
         policy["version"] = json!(3);
         policy["collections"]["open"]["reviewed_relationships"] = json!([relationship(&hidden)]);
         fixture.write_policy(policy.clone());
         assert_eq!(sync_company_graph(address, &model)["status"], "complete");
         assert_eq!(read(request.clone()), absent);
+        assert_eq!(guide(json!({"request":guided_request})), guided_absent);
+        assert_eq!(ask(scoped), absent_scope);
         policy["version"] = json!(4);
         policy["collections"]["open"]["reviewed_relationships"] = json!([relationship(&visible)]);
         fixture.write_policy(policy.clone());
@@ -686,7 +744,69 @@ fn signed_relationship_checks_scope_and_every_current_binding() {
         assert_eq!(value["status"], "value", "{value}");
         assert_eq!(value["value"], "Access Panel");
         assert_eq!(value["steps"][1]["quote"], EDGE);
-        assert_eq!(value["steps"][1]["bindings"][0]["chunk_id"], visible["chunk_id"]);
+        let preview = guide(json!({"request":guided_request}));
+        assert_eq!(preview.0, 200);
+        assert_eq!(preview.1["status"], "confirm_relationship");
+        assert_eq!(
+            preview.1["interpretation"]["via"],
+            json!(["Operations Desk"])
+        );
+        assert!(
+            !preview.1.to_string().contains("Access Panel"),
+            "{}",
+            preview.1
+        );
+        let confirmation =
+            json!({"request":guided_request,"confirmed":preview.1["interpretation"]});
+        let confirmed = guide(confirmation.clone());
+        assert_eq!(confirmed.0, 200);
+        assert_eq!(confirmed.1["steps"], value["steps"]);
+        assert_eq!(confirmed.1["value"], value["value"]);
+        let mut altered = confirmation.clone();
+        altered["confirmed"]["scope"] = json!(["staff rehearsal"]);
+        assert_eq!(guide(altered).0, 409);
+        let mut altered = confirmation.clone();
+        altered["confirmed"]["via"] = json!(["Other Desk"]);
+        assert_eq!(guide(altered).0, 409);
+        let mut wrong_intermediate = guided_request.clone();
+        wrong_intermediate["via"] = json!(["Other Desk"]);
+        assert_eq!(guide(json!({"request":wrong_intermediate})), guided_absent);
+        let mut ordered = request.clone();
+        ordered["path_predicates"] = json!(["depends_on", "requires"]);
+        assert_eq!(read(ordered.clone()).1, value);
+        ordered["path_predicates"] = json!(["uses", "requires"]);
+        assert_eq!(read(ordered.clone()), absent);
+        ordered["path_predicates"] = json!(["requires"]);
+        assert_eq!(read(ordered).0, 400);
+        assert_eq!(
+            value["steps"][1]["bindings"][0]["chunk_id"],
+            visible["chunk_id"]
+        );
+        let (status, natural) = ask(scoped);
+        assert_eq!(status, 200, "{natural}");
+        assert_eq!(natural["status"], "value", "{natural}");
+        assert_eq!(natural["value"], "Access Panel");
+        assert_eq!(
+            natural["steps"][0]["citation"],
+            value["steps"][1]["citation"]
+        );
+        assert_eq!(
+            natural["steps"][0]["bindings"],
+            value["steps"][1]["bindings"]
+        );
+        let clarification = ask("What does Operations Desk require?");
+        assert_eq!(clarification.1["status"], "clarification");
+        assert_eq!(clarification.1["choices"], json!(["public matinee"]));
+        let (status, resolved) = api(
+            address,
+            Some(ALICE.as_str()),
+            ASK,
+            Some(json!({
+                "question":"What does Operations Desk require?","clarification":"public matinee","graph":true,"limit":3
+            })),
+        );
+        assert_eq!(status, 200, "{resolved}");
+        assert_eq!(resolved, natural);
         request["limit"] = json!(2);
         assert_eq!(read(request.clone()), absent);
         request["limit"] = json!(3);
@@ -696,6 +816,11 @@ fn signed_relationship_checks_scope_and_every_current_binding() {
         fs::write(root.join("open/scope.md"), "Policy replaced this month.").unwrap();
         assert_eq!(sync_company_graph(address, &model)["status"], "complete");
         assert_eq!(read(request.clone()), absent);
+        assert_eq!(guide(confirmation.clone()).0, 409);
+        let stale = ask(scoped);
+        assert_eq!(stale.0, 200);
+        assert_eq!(stale.1["plan"], absent_scope.1["plan"]);
+        assert!(!stale.1.to_string().contains(CONDITION));
         fs::remove_file(root.join("open/scope.md")).unwrap();
         assert_eq!(sync_company_graph(address, &model)["status"], "complete");
         assert_eq!(read(request.clone()), absent);
@@ -703,6 +828,517 @@ fn signed_relationship_checks_scope_and_every_current_binding() {
         policy["collections"]["open"]["roles"] = json!([]);
         fixture.write_policy(policy);
         assert_eq!(read(request), absent);
+        assert_eq!(guide(json!({"request":guided_request})), guided_absent);
+        assert_eq!(guide(confirmation).0, 409);
+    });
+}
+
+#[test]
+fn signed_scoped_approval_is_invisible_to_ordinary_graph() {
+    const DECIDE: &str = "/v1/graph-review/decide";
+    const REVIEW: &str = "/v1/graph-review/fact";
+    const ASK: &str = "/v1/relationship/ask";
+    const CONTEXT: &str = "判断 notes: the night shift uses the reviewed route.";
+    const ALIASES: &str =
+        "The welcome counter is named Arrival Desk. The late watch is the night shift.";
+    const RESTRICTED_ALIAS: &str = "The welcome counter is named Locked Desk.";
+    const RESTRICTED_SCOPE: &str = "A Different Team owns Arrival Desk on the late watch.";
+    let model = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let fixture = Fixture::new(Some(&model.server_addr().to_string()), false);
+    let mut profile: Value = serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+    profile["graph"]["extractor"] = json!("chat");
+    fs::write(&fixture.profile, profile.to_string()).unwrap();
+    let open = fixture.root.path().join("open");
+    fs::write(
+        open.join("arrivals.md"),
+        "```anyrag-relations\nArrival Desk | owned_by | Rota Team\n```\n",
+    )
+    .unwrap();
+    fs::write(open.join("context.md"), CONTEXT).unwrap();
+    fs::write(open.join("names.md"), ALIASES).unwrap();
+    fs::write(
+        fixture.root.path().join("restricted/secret.md"),
+        RESTRICTED_ALIAS,
+    )
+    .unwrap();
+    fs::write(
+        fixture.root.path().join("restricted/relay.md"),
+        "```anyrag-relations\nArrival Desk | owned_by | A Different Team\n```\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.root.path().join("restricted/shift.md"),
+        RESTRICTED_SCOPE,
+    )
+    .unwrap();
+    fixture.write_policy(json!({"schema_version":1,"version":2,"issuer":ISSUER,
+        "administrators":["admin"],"subjects":{"alice":["reader","reviewer"]},
+        "collections":{"open":{"roles":["reader"],"subjects":["bob"],"endpoints":["chat"],
+            "graph_review_roles":["reviewer"],
+            "graph_publication":{"trusted_paths":["arrivals.md"],
+                "routine_predicates":[],"high_impact_predicates":["owned_by"],
+                "single_valued_predicates":["owned_by"]}},
+            "restricted":{"subjects":["bob"],"endpoints":["chat"],"graph_review_subjects":["bob"],
+                "graph_publication":{"trusted_paths":["relay.md"],"routine_predicates":[],
+                    "high_impact_predicates":["owned_by"]}}}}));
+    with_http(&fixture.open(), |address| {
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        let baseline = query(address, ALICE.as_str(), "Arrival Desk", true);
+        let queue = api(
+            address,
+            Some(ALICE.as_str()),
+            "/v1/graph-review/list",
+            Some(json!({"collection":"open"})),
+        );
+        assert_eq!(queue.0, 200, "{}", queue.1);
+        let proposal = &queue.1["proposals"][0];
+        let source = query(address, ALICE.as_str(), "the night shift", false);
+        let anchor = source["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == "context.md")
+            .unwrap();
+        let mut request = company_graph_decision(proposal, "approve", "scope-one");
+        request["applicability"] = json!({"scope":["night shift"],"context":[{
+            "chunk_id":anchor["chunk_id"],"revision":anchor["revision"],
+            "start":0,"end":CONTEXT.chars().count(),"quote_sha256":files::digest(CONTEXT.as_bytes())
+        }]});
+        assert_eq!(
+            api(address, Some(BOB.as_str()), DECIDE, Some(request.clone())).0,
+            403
+        );
+        let mut invalid = request.clone();
+        invalid["applicability"]["context"][0]["end"] = json!(CONTEXT.len());
+        assert_eq!(
+            api(address, Some(ALICE.as_str()), DECIDE, Some(invalid)).0,
+            409
+        );
+        let decide = |body| api(address, Some(ALICE.as_str()), DECIDE, Some(body));
+        let approved = decide(request.clone());
+        assert_eq!(approved.0, 200, "{}", approved.1);
+        assert_eq!(approved.1["status"], "approved_scoped");
+        assert_eq!(decide(request.clone()), approved);
+        request.as_object_mut().unwrap().remove("applicability");
+        assert_eq!(decide(request).0, 409);
+        assert_eq!(
+            query(address, ALICE.as_str(), "Arrival Desk", true),
+            baseline
+        );
+        let ask = || {
+            api(
+                address,
+                Some(ALICE.as_str()),
+                ASK,
+                Some(json!({"question":"Who owns Arrival Desk during night shift?","graph":true})),
+            )
+        };
+        let (status, result) = ask();
+        assert_eq!(status, 200, "{result}");
+        assert_eq!(result["status"], "value", "{result}");
+        assert_eq!(result["value"], "Rota Team");
+        assert_eq!(result["steps"][0]["review"]["context"][0]["quote"], CONTEXT);
+        let names = query(address, ALICE.as_str(), ALIASES, false);
+        let name_chunk = names["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == "names.md")
+            .unwrap();
+        let mut reviewed = Vec::new();
+        for (kind, surface, canonical) in [
+            ("entity", "welcome counter", "Arrival Desk"),
+            ("setting", "late watch", "night shift"),
+        ] {
+            let approval = json!({
+                "action":"add_alias", "collection":"open", "alias_kind":kind,
+                "fingerprint":proposal["fingerprint"], "policy_version":2,
+                "idempotency_key":format!("alias-{kind}"), "surface":surface,"canonical":canonical,
+                "primary":{"chunk_id":name_chunk["chunk_id"],"revision":name_chunk["revision"],
+                    "start":0,"end":ALIASES.chars().count(),"quote_sha256":files::digest(ALIASES.as_bytes())}
+            });
+            assert_eq!(
+                api(address, Some(BOB.as_str()), REVIEW, Some(approval.clone())).0,
+                403
+            );
+            let (status, body) = api(
+                address,
+                Some(ALICE.as_str()),
+                REVIEW,
+                Some(approval.clone()),
+            );
+            assert_eq!(status, 200, "{body}");
+            assert_eq!(
+                api(address, Some(ALICE.as_str()), REVIEW, Some(approval)),
+                (status, body.clone())
+            );
+            reviewed.push(body["fact_id"].clone());
+        }
+        let lookup = |limit| {
+            api(
+                address,
+                Some(ALICE.as_str()),
+                "/v1/relationship",
+                Some(
+                    json!({"root":"Welcome counter","scope":["late watch"],"min_steps":1,
+                "max_steps":1,"terminal_predicates":["owned_by"],"limit":limit}),
+                ),
+            )
+        };
+        let (status, bound) = lookup(3);
+        assert_eq!(status, 200, "{bound}");
+        assert_eq!(bound["value"], "Rota Team");
+        assert_eq!(bound["name_bindings"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            bound["name_bindings"][0]["chunk_id"],
+            name_chunk["chunk_id"]
+        );
+        assert_eq!(lookup(2).1["status"], "limit_reached");
+        let mut selected = json!({"root":"Arrival Desk","root_alias":"welcome counter",
+            "scope":["night shift"],"min_steps":1,"max_steps":1,
+            "terminal_predicates":["owned_by"],"path_predicates":["owned_by"],"limit":3});
+        let guide =
+            |token, input| api(address, Some(token), "/v1/relationship/guided", Some(input));
+        let preview = guide(ALICE.as_str(), json!({"request":selected}));
+        assert_eq!(preview.0, 200);
+        assert_eq!(preview.1["status"], "confirm_relationship");
+        assert_eq!(preview.1["root_identity"]["kind"], "reviewed_alias");
+        assert_eq!(preview.1["identity_unverified"], false);
+        assert_eq!(preview.1["interpretation"]["root_alias"], "welcome counter");
+        assert!(preview.1.get("value").is_none() && preview.1.get("name_bindings").is_none());
+        let confirmation = json!({"request":selected,"confirmed":preview.1["interpretation"]});
+        let mut capped = selected.clone();
+        capped["limit"] = json!(2);
+        assert_eq!(
+            guide(ALICE.as_str(), json!({"request":capped})).1["status"],
+            "limit_reached"
+        );
+        let confirmed = guide(ALICE.as_str(), confirmation.clone());
+        assert_eq!(confirmed.1["value"], "Rota Team");
+        assert_eq!(
+            confirmed.1["name_bindings"][0]["chunk_id"],
+            name_chunk["chunk_id"]
+        );
+        let mut without_alias = confirmation.clone();
+        without_alias["request"]
+            .as_object_mut()
+            .unwrap()
+            .remove("root_alias");
+        assert_eq!(guide(ALICE.as_str(), without_alias).0, 409);
+        selected["root_alias"] = json!("unreviewed alias");
+        assert_eq!(
+            guide(ALICE.as_str(), json!({"request":selected})).1["status"],
+            "no_supported_value"
+        );
+        selected.as_object_mut().unwrap().remove("root_alias");
+        assert_eq!(
+            guide(ALICE.as_str(), json!({"request":selected})).1["identity_unverified"],
+            true
+        );
+        selected["root"] = json!("welcome counter");
+        let implicit = guide(ALICE.as_str(), json!({"request":selected}));
+        assert_eq!(implicit.1["interpretation"], preview.1["interpretation"]);
+        assert_eq!(implicit.1["root_identity"], preview.1["root_identity"]);
+        let ask_alias = |token, root, limit| {
+            api(
+                address,
+                Some(token),
+                ASK,
+                Some(json!({
+                    "question":format!("Who owns the {root} during late watch?"),
+                    "graph":true,"limit":limit
+                })),
+            )
+        };
+        let natural = ask_alias(ALICE.as_str(), "welcome counter", 3);
+        assert_eq!(natural.1["value"], "Rota Team");
+        assert_eq!(natural.1["name_bindings"], bound["name_bindings"]);
+        assert_eq!(natural.1["interpretation"]["root"], "Arrival Desk");
+        assert_eq!(natural.1["interpretation"]["scope"], json!(["night shift"]));
+        assert_eq!(
+            ask_alias(ALICE.as_str(), "Arrival Desk", 3).1["value"],
+            "Rota Team"
+        );
+        assert_eq!(
+            ask_alias(ALICE.as_str(), "welcome counter", 2).1["status"],
+            "limit_reached"
+        );
+        let private = query(address, BOB.as_str(), RESTRICTED_ALIAS, false);
+        let private_chunk = private["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == "secret.md")
+            .unwrap();
+        let private_queue = api(
+            address,
+            Some(BOB.as_str()),
+            "/v1/graph-review/list",
+            Some(json!({"collection":"restricted"})),
+        );
+        assert_eq!(private_queue.0, 200);
+        let restricted_source = query(address, BOB.as_str(), RESTRICTED_SCOPE, false);
+        let restricted_scope = restricted_source["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == "shift.md")
+            .unwrap();
+        let mut literal = company_graph_decision(
+            &private_queue.1["proposals"][0],
+            "approve",
+            "restricted-literal",
+        );
+        literal["collection"] = json!("restricted");
+        literal["applicability"] = json!({"scope":["Late Watch"],"context":[{
+            "chunk_id":restricted_scope["chunk_id"],"revision":restricted_scope["revision"],
+            "start":0,"end":RESTRICTED_SCOPE.chars().count(),
+            "quote_sha256":files::digest(RESTRICTED_SCOPE.as_bytes())
+        }]});
+        let before_literal = ask_alias(ALICE.as_str(), "Arrival Desk", 3);
+        let literal = api(address, Some(BOB.as_str()), DECIDE, Some(literal));
+        assert_eq!(literal.0, 200, "{}", literal.1);
+        assert_eq!(ask_alias(ALICE.as_str(), "Arrival Desk", 3), before_literal);
+        let competing = ask_alias(BOB.as_str(), "Arrival Desk", 3);
+        assert_eq!(competing.1["status"], "clarification", "{competing:?}");
+        let approve_hidden = json!({
+            "action":"add_alias","collection":"restricted","alias_kind":"entity",
+            "fingerprint":private_queue.1["fingerprint"],"policy_version":2,
+            "idempotency_key":"hidden-alias","surface":"welcome counter","canonical":"Locked Desk",
+            "primary":{"chunk_id":private_chunk["chunk_id"],"revision":private_chunk["revision"],
+                "start":0,"end":RESTRICTED_ALIAS.chars().count(),"quote_sha256":files::digest(RESTRICTED_ALIAS.as_bytes())}
+        });
+        let private = api(address, Some(BOB.as_str()), REVIEW, Some(approve_hidden));
+        assert_eq!(private.0, 200, "{}", private.1);
+        assert_eq!(
+            guide(ALICE.as_str(), json!({"request":confirmation["request"]})),
+            preview
+        );
+        assert_eq!(guide(BOB.as_str(), confirmation.clone()), confirmed);
+        assert_eq!(
+            guide(BOB.as_str(), json!({"request":selected})).1["status"],
+            "ambiguous"
+        );
+        assert_eq!(lookup(3), (status, bound));
+        assert_eq!(ask_alias(ALICE.as_str(), "welcome counter", 3), natural);
+        assert_eq!(
+            ask_alias(BOB.as_str(), "welcome counter", 3).1["status"],
+            "clarification"
+        );
+        let both = api(
+            address,
+            Some(BOB.as_str()),
+            "/v1/relationship",
+            Some(
+                json!({"root":"Welcome counter","scope":["late watch"],"min_steps":1,
+                "max_steps":1,"terminal_predicates":["owned_by"],"limit":3}),
+            ),
+        );
+        assert_eq!(both.1["status"], "ambiguous");
+        let citation = format!("/v1/evidence/{}", name_chunk["chunk_id"].as_str().unwrap());
+        assert_eq!(
+            api(address, Some(ALICE.as_str()), &citation, None).1["evidence"]["text"],
+            ALIASES
+        );
+        fs::write(open.join("names.md"), format!("Revised. {ALIASES}")).unwrap();
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        assert_eq!(guide(ALICE.as_str(), confirmation.clone()).0, 409);
+        assert_eq!(lookup(3).1["status"], "no_supported_value");
+        assert_eq!(
+            ask_alias(ALICE.as_str(), "welcome counter", 3).1["plan"]["status"],
+            "ordinary_search"
+        );
+        assert_eq!(api(address, Some(ALICE.as_str()), &citation, None).0, 404);
+        let revised = query(address, ALICE.as_str(), ALIASES, false);
+        let revised_names = revised["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == "names.md")
+            .unwrap();
+        let rereview = api(
+            address,
+            Some(ALICE.as_str()),
+            REVIEW,
+            Some(json!({
+                "action":"add_alias","collection":"open","alias_kind":"entity",
+                "fingerprint":proposal["fingerprint"],"policy_version":2,
+                "idempotency_key":"new-alias-proof","surface":"welcome counter","canonical":"Arrival Desk",
+                "primary":{"chunk_id":revised_names["chunk_id"],"revision":revised_names["revision"],
+                    "start":"Revised. ".chars().count(),"end":"Revised. ".chars().count()+ALIASES.chars().count(),
+                    "quote_sha256":files::digest(ALIASES.as_bytes())}
+            })),
+        );
+        assert_eq!(rereview.0, 200, "{rereview:?}");
+        let fresh = guide(ALICE.as_str(), json!({"request":confirmation["request"]}));
+        assert_eq!(fresh.1["status"], "confirm_relationship");
+        assert_ne!(
+            fresh.1["interpretation"]["root_alias_version"],
+            confirmation["confirmed"]["root_alias_version"]
+        );
+        assert_eq!(guide(ALICE.as_str(), confirmation).0, 409);
+        assert_eq!(api(address, Some(ALICE.as_str()), REVIEW, Some(json!({
+            "action":"withdraw","collection":"open","policy_version":2,"fingerprint":proposal["fingerprint"],
+            "idempotency_key":"withdraw-entity-alias","fact_id":reviewed[0]
+        }))).0, 200);
+        fs::write(open.join("context.md"), format!("New revision. {CONTEXT}")).unwrap();
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        assert_eq!(ask().1["plan"]["status"], "ordinary_search");
+        let renewed_queue = api(
+            address,
+            Some(ALICE.as_str()),
+            "/v1/graph-review/list",
+            Some(json!({"collection":"open","scoped":true})),
+        );
+        assert_eq!(renewed_queue.0, 200, "{}", renewed_queue.1);
+        let renewal = &renewed_queue.1["proposals"][0];
+        assert_eq!(renewal["reason"], "stale_scoped_context");
+        let fresh_context = format!("New revision. {CONTEXT}");
+        let source = query(address, ALICE.as_str(), "night shift", false);
+        let anchor = source["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == "context.md")
+            .unwrap();
+        let mut replacement = company_graph_decision(renewal, "approve", "replacement-1");
+        replacement["replace_scope"] = json!(true);
+        replacement["applicability"] = json!({"scope":["night shift"],"context":[{
+            "chunk_id":anchor["chunk_id"],"revision":anchor["revision"],"start":0,
+            "end":fresh_context.chars().count(),"quote_sha256":files::digest(fresh_context.as_bytes())
+        }]});
+        let renewed = decide(replacement.clone());
+        assert_eq!(renewed.0, 200, "{}", renewed.1);
+        assert_ne!(renewed.1["proposal_id"], renewal["proposal_id"]);
+        assert_eq!(decide(replacement), renewed);
+        assert_eq!(
+            ask().1["steps"][0]["review"]["context"][0]["quote"],
+            fresh_context
+        );
+        let ordinary = query(address, ALICE.as_str(), "Arrival Desk", true);
+        assert!(graph_evidence(&ordinary, "arrivals.md").is_none());
+    });
+}
+
+#[test]
+fn signed_terminal_facts_require_exact_current_reviewed_evidence() {
+    const REVIEW: &str = "/v1/graph-review/fact";
+    const NEGATIVE: &str = "On night shift, Station Six does not require a Copper Relay.";
+    const ABSENCE: &str = "In the night shift register, no owner is recorded for Station Six.";
+    let model = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let fixture = Fixture::new(Some(&model.server_addr().to_string()), false);
+    let mut profile: Value = serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+    profile["graph"]["extractor"] = json!("chat");
+    fs::write(&fixture.profile, profile.to_string()).unwrap();
+    let open = fixture.root.path().join("open");
+    fs::write(open.join("negative.md"), NEGATIVE).unwrap();
+    fs::write(open.join("absence.md"), ABSENCE).unwrap();
+    fs::write(open.join("conflict.md"), "").unwrap();
+    fs::write(
+        fixture.root.path().join("restricted/secret.md"),
+        "Private note",
+    )
+    .unwrap();
+    fixture.write_policy(json!({"schema_version":1,"version":2,"issuer":ISSUER,
+        "administrators":["admin"],"subjects":{"alice":["reader","reviewer"]},
+        "collections":{"open":{"roles":["reader"],"subjects":["bob"],"endpoints":["chat"],
+            "graph_review_roles":["reviewer"],"graph_publication":{"trusted_paths":["conflict.md"],
+                "routine_predicates":["requires"],"high_impact_predicates":["owned_by"],
+                "single_valued_predicates":["owned_by"]}},
+            "restricted":{"subjects":["bob"]}}}));
+    with_http(&fixture.open(), |address| {
+        let signed = |token: &str, path, body| api(address, Some(token), path, Some(body));
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        let queue = signed(
+            ALICE.as_str(),
+            "/v1/graph-review/list",
+            json!({"collection":"open"}),
+        );
+        assert_eq!(queue.0, 200, "{}", queue.1);
+        let anchor = |path: &str, text: &str| {
+            let result = query(address, ALICE.as_str(), text, false);
+            let evidence = result["evidence"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["path"] == path)
+                .unwrap();
+            json!({"chunk_id":evidence["chunk_id"],"revision":evidence["revision"],
+                "start":0,"end":text.chars().count(),"quote_sha256":files::digest(text.as_bytes())})
+        };
+        let absence = anchor("absence.md", ABSENCE);
+        let req = |key, predicate, kind, target, primary| {
+            json!({
+                "action":"add","collection":"open","fingerprint":queue.1["fingerprint"],
+                "policy_version":2,"idempotency_key":key,"subject":"Station Six",
+                "predicate":predicate,"kind":kind,"target":target,"scope":["night shift"],"primary":primary
+            })
+        };
+        let negative = req(
+            "deny-copper",
+            "requires",
+            "explicit_negative",
+            json!("Copper Relay"),
+            anchor("negative.md", NEGATIVE),
+        );
+        let decide = |body| signed(ALICE.as_str(), REVIEW, body);
+        assert_eq!(signed(BOB.as_str(), REVIEW, negative.clone()).0, 403);
+        let denial = decide(negative.clone());
+        assert_eq!(denial.0, 200, "{}", denial.1);
+        assert_eq!(decide(negative), denial);
+        let recorded = decide(req(
+            "unrecorded-owner",
+            "owned_by",
+            "documented_absence",
+            Value::Null,
+            absence.clone(),
+        ));
+        assert_eq!(recorded.0, 200, "{}", recorded.1);
+        let ask = |question| {
+            signed(
+                ALICE.as_str(),
+                "/v1/relationship/ask",
+                json!({"question":question,"graph":true}),
+            )
+        };
+        let required = "Does Station Six require Copper Relay during night shift?";
+        let result = ask(required);
+        assert_eq!(result.1["status"], "explicit_negative", "{}", result.1);
+        assert_eq!(result.1["fact"]["primary"]["quote"], NEGATIVE);
+        let different = ask("Does Station Six require Tin Relay during night shift?");
+        assert_ne!(different.1["status"], "explicit_negative");
+        let owner = "Who owns Station Six during night shift?";
+        let result = ask(owner);
+        assert_eq!(result.1["status"], "documented_absence", "{}", result.1);
+        let citation = format!("/v1/evidence/{}", absence["chunk_id"].as_str().unwrap());
+        let reopened = api(address, Some(ALICE.as_str()), &citation, None);
+        assert_eq!(reopened.1["evidence"]["text"], ABSENCE);
+        let backup = signed(ADMIN.as_str(), "/v1/admin/backup", json!({}));
+        assert_eq!(backup.0, 200, "{}", backup.1);
+        let withdraw = json!({"action":"withdraw","collection":"open","fingerprint":queue.1["fingerprint"],
+            "policy_version":2,"idempotency_key":"withdraw-owner","fact_id":recorded.1["fact_id"]});
+        let withdrawn = decide(withdraw.clone());
+        assert_eq!(withdrawn.0, 200, "{}", withdrawn.1);
+        assert_eq!(decide(withdraw), withdrawn);
+        let restore = signed(
+            ADMIN.as_str(),
+            "/v1/admin/restore",
+            json!({"backup_id":backup.1["backup_id"]}),
+        );
+        assert_eq!(restore.0, 200, "{}", restore.1);
+        assert_eq!(ask(owner).0, 503);
+        fs::write(
+            open.join("conflict.md"),
+            "```anyrag-relations\nStation Six | requires | Copper Relay\n```\n",
+        )
+        .unwrap();
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        assert_eq!(signed(ADMIN.as_str(), "/v1/admin/reopen", json!({})).0, 200);
+        assert_ne!(ask(owner).1["status"], "documented_absence");
+        assert_eq!(ask(required).1["status"], "conflict", "{}", ask(required).1);
+        fs::remove_file(open.join("negative.md")).unwrap();
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        assert_ne!(ask(required).1["status"], "explicit_negative");
     });
 }
 

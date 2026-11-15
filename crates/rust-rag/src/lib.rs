@@ -155,13 +155,21 @@ enum Command {
         #[arg(value_enum)]
         profile: Option<guide::Profile>,
     },
-    /// Serve read-only search for one existing personal index over stdio
+    /// Serve read-only tools for a personal index or signed shared service over stdio
     #[cfg(feature = "mcp")]
     Mcp {
         /// Trusted local reranker profile for opt-in search requests
         #[cfg(feature = "inference")]
         #[arg(long)]
         reranker_profile: Option<PathBuf>,
+        /// Origin of the signed shared service for guided relationship tools
+        #[cfg(feature = "shared")]
+        #[arg(long, requires = "bearer_token_file")]
+        shared_url: Option<String>,
+        /// Absolute path to the private bearer-token file for this reader
+        #[cfg(feature = "shared")]
+        #[arg(long, requires = "shared_url")]
+        bearer_token_file: Option<PathBuf>,
     },
     /// Run the authenticated HTTP service
     #[cfg(feature = "shared")]
@@ -1038,19 +1046,37 @@ pub fn run_cli() -> ExitCode {
     if let Command::Mcp {
         #[cfg(feature = "inference")]
         ref reranker_profile,
+        #[cfg(feature = "shared")]
+        ref shared_url,
+        #[cfg(feature = "shared")]
+        ref bearer_token_file,
     } = cli.command
     {
-        return match cli
-            .state_dir
-            .as_deref()
-            .ok_or("MCP requires an explicit --state-dir for an existing personal index.")
-            .and_then(|state| {
-                mcp::serve(
-                    state,
-                    #[cfg(feature = "inference")]
-                    reranker_profile.as_deref(),
-                )
-            }) {
+        let result = (|| {
+            #[cfg(feature = "shared")]
+            if let Some((origin, token_file)) =
+                shared_url.as_deref().zip(bearer_token_file.as_deref())
+            {
+                if cli.state_dir.is_some() {
+                    return Err("Shared MCP does not use --state-dir.");
+                }
+                #[cfg(feature = "inference")]
+                if reranker_profile.is_some() {
+                    return Err("Shared MCP does not use --reranker-profile.");
+                }
+                return mcp::serve_shared(origin, token_file);
+            }
+            let state = cli
+                .state_dir
+                .as_deref()
+                .ok_or("MCP requires an explicit --state-dir for an existing personal index.")?;
+            mcp::serve(
+                state,
+                #[cfg(feature = "inference")]
+                reranker_profile.as_deref(),
+            )
+        })();
+        return match result {
             Ok(()) => ExitCode::SUCCESS,
             Err(message) => {
                 eprintln!("{message}");

@@ -130,6 +130,12 @@ The MCP client owns delivery to its model. Each result carries the same
 evidence as `structuredContent` and as JSON text in `content`; forward one of
 them, not both. [Reference client](../../examples/mcp-answer-client.mjs)
 
+### Guided relationships on a shared service
+
+Use the v1.2.0 Linux image or build with `--features mcp,shared`. In the MCP client's stdio configuration, give each reader their own signed service credential file and run `rust-rag mcp --shared-url https://search.example.com --bearer-token-file /private/reader.jwt`. Keep the file private and outside the checkout. On Unix, use owner-only permissions such as `chmod 600`. For a Windows source build, restrict the file's ACL to the reader account. The client leaves Windows ACL verification to the operator. Restart the subprocess after refreshing the reader's token. For local development use HTTP with a numeric loopback address such as `127.0.0.1`. Use HTTPS with a trusted certificate for other origins. The client ignores proxy settings and rejects redirects.
+
+Call `preview_relationship` with `{"request": {…}}` using the signed service's typed relationship request. Show the interpretation to the reader. On their confirmation, call `confirm_relationship` with the same `request` and the exact preview `interpretation` as `confirmed`. Open a returned reference with `open_citation` and its `chunk_id` and `revision`. Each process uses one signed reader, and the service applies that reader's current access on every call. The shared MCP process takes no index folder or reranker settings and advertises only these three tools. Treat citation and source text as untrusted data. A hosted MCP client may transmit returned source content to its provider.
+
 ## Boundaries
 
 The default binary does not fetch models or process files through an API. Optional endpoint configuration turns on separate network egress. Parsing can skip unsupported or invalid inputs. Scanned-image PDFs need a separate OCR stage. Indexing runs on your files; the repo's smoke fixtures are invented. Shared collection grants apply in the HTTP service, never in this owner's CLI or SDK.

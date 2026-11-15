@@ -10,7 +10,7 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/rust-rag/Cargo.toml crates/rust-rag/Cargo.toml
 COPY crates/rust-rag/src/ crates/rust-rag/src/
 RUN case "$WITH_AWS" in \
-        0) features=pdf,docx,shared,dashboard ;; \
+        0) features=pdf,docx,shared,dashboard,mcp ;; \
         1) features=pdf,docx,aws; apt-get update \
             && apt-get install -y --no-install-recommends cmake \
             && rm -rf /var/lib/apt/lists/* || exit 1 ;; \

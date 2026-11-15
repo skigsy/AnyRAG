@@ -4,6 +4,31 @@ Pick a workload in the [decision tree](field-guide.md#decision-tree). Use `rust-
 
 Choose extraction, embeddings and answer generation independently. The extractor may see every eligible passage processed in its batch. An embedding service sees indexed text and search queries. An answer service sees the question and selected evidence. You can run any of these locally and leave generation off. An external model needs approval for its own data and destination, even when the index and the other models are local.
 
+## Choose your setup
+
+Start with one folder, a private index outside cloud sync folders, and a question whose answer you can check.
+
+### Search your own files
+
+Install the [Windows ZIP](#install-the-windows-zip), [run the Linux image](#try-personal-search-in-the-linux-image), or [build from source](#install-from-this-repository). For a standalone executable, set `state` to a new private index directory and `files` to your folder. Run:
+
+~~~sh
+rust-rag --state-dir "$state" init
+rust-rag --state-dir "$state" ingest "$files" --review --json
+rust-rag --state-dir "$state" query 'workshop spare key' --json
+rust-rag --state-dir "$state" citation CHUNK_ID --revision REVISION --json
+~~~
+
+Replace the sample question with one about your files. Use the `chunk_id` and `revision` from the result's `evidence`. Read the reopened passage and use its file and locator in your answer. If the evidence leaves a detail open, say which one. [Obsidian vaults](field-guide.md#personal-obsidian-recipe) · [PDFs](#install-from-this-repository) · [Word files](#word-documents) · [Model-generated answers](#personal-notes-and-shared-deployments)
+
+### Search a private team collection
+
+Use the [private Linux service runbook](../infra/private-vm.md#prepare-trusted-inputs) to set up a source folder, a signed reader and a collection grant. Pass `service-doctor`, start the service, and as an administrator run a sync and wait for it to complete. As the reader, ask the question at `POST /v1/query` and reopen the result at `GET /v1/evidence/{chunk_id}` using the same signed identity. [Start the service and verify access](../infra/private-vm.md#start-and-verify)
+
+### Confirm a relationship across files
+
+Start with private team search and [enable Graph RAG](../infra/private-vm.md#enable-company-graph-rag). Review the quoted source behind each link you need. Preview the starting entity, ordered relations and setting, then confirm the proposed interpretation and reopen the citations for every step. The v1.2.0 Linux image supports the signed API and shared MCP. The dashboard is a browser client for the same service. [Guided lookup](../infra/private-vm.md#confirm-a-relationship-interpretation) · [Dashboard](../infra/review/README.md#confirm-a-read-only-lookup) · [MCP](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service)
+
 ## Install from this repository
 
 Install Rustup, then run Cargo from the checkout so it uses the pinned Rust toolchain. Windows source builds need the MSVC x64 C++ build tools. Linux builds need a C compiler and standard linker. On Ubuntu, the `build-essential` package supplies both. The binary bundles SQLite. [Rustup installation](https://rust-lang.github.io/rustup/installation/index.html) · [Pinned toolchain](../rust-toolchain.toml)
@@ -34,7 +59,7 @@ Choose the features you need. Re-run install with the same options and `--force`
 Put the standalone Windows x64 ZIP and its release checksum manifest in the same local folder. In PowerShell, change to that folder and run:
 
 ~~~powershell
-$archive = 'rust-rag-1.1.3-windows-x64.zip'
+$archive = 'rust-rag-1.2.0-windows-x64.zip'
 $expected = (Get-Content -LiteralPath 'SHA256SUMS.txt' |
   Where-Object { $_ -match ('^[a-fA-F0-9]{64}  ' + [regex]::Escape($archive) + '$') } |
   ForEach-Object { ($_ -split '  ', 2)[0] })
@@ -51,7 +76,7 @@ The ZIP supplies `rust-rag.exe` and bundles SQLite. The install folder and PATH 
 
 ## Try personal search in the Linux image
 
-On a Linux amd64 machine with Docker, [verify and load the v1.1.3 image](../infra/private-vm.md#load-a-reviewed-release-archive). In the same shell, as a regular user with Docker access, create a private workspace and run an offline search:
+On a Linux amd64 machine with Docker, [verify and load the v1.2.0 image](../infra/private-vm.md#load-a-reviewed-release-archive). In the same shell, as a regular user with Docker access, create a private workspace and run an offline search:
 
 ~~~sh
 work=$(mktemp -d) || exit 1
@@ -73,22 +98,11 @@ anyrag query 'workshop spare key' --explain --json
 
 Look for the locker 14 passage under `evidence` and its ranking under `explanation`. Copy that result's `chunk_id` and `revision` into `anyrag citation CHUNK_ID --revision REVISION --json` to reopen it. The container reads the notes through a read-only mount and keeps its index in `$work/index` between calls. For your own notes, set the source mount to the absolute folder path and choose a new private index directory.
 
-## Choose your setup
-
-The commands below use one private index per workload. Set a private path outside the repo and cloud sync folders. Quote actual paths if they contain spaces.
-
-~~~sh
-rust-rag --state-dir /path/to/private/index init --profile infra/local.profile.json
-rust-rag --state-dir /path/to/private/index doctor --json
-rust-rag --state-dir /path/to/private/index ingest /path/to/notes
-rust-rag --state-dir /path/to/private/index query "What changed last week?" --json
-~~~
-
-For an Obsidian vault, use `infra/obsidian.profile.json` and a separate index. Any RAG ignores application metadata, version control folders, and trash. See the [vault recipe](field-guide.md#personal-obsidian-recipe).
+## Add formats to a personal index
 
 To use PDFs, install with `--features pdf`, initialize with `--upgrade`, and ingest with `--pdf`. If you need graph or semantic retrieval, initialize the advanced index too. Use [the Rust command reference](../crates/rust-rag/README.md) for the next steps.
 
-To try scanned PDF ingestion, use the [experimental offline Linux OCR recipe](../infra/ocr/README.md). It creates a fresh index with region citations and binds the index to the worker fingerprint. The native PDF feature handles text-layer documents. [OCR qualification status](../status.md#all-in-one-release-gates)
+To try scanned PDF ingestion, use the [experimental offline Linux OCR recipe](../infra/ocr/README.md). It creates a fresh index with region citations and binds the index to the worker fingerprint. The native PDF feature handles text-layer documents. [OCR qualification status](../status.md)
 
 ## Local graph for declared relationships
 
@@ -436,7 +450,7 @@ Query results are candidate context, including weak matches. Verify the cited te
 Build the minimal x64 archive with [the release builder](../scripts/build_native_release.py) from a reviewed commit. Choose a short output path outside sync folders. The builder creates two MSVC build trees under the output parent, and deep paths can prevent the bundled SQLite object from being written. Keep the ZIP, SHA-256 manifest, SBOM, and provenance together. For the clean client check, copy the ZIP and [test script](../scripts/test_native_windows.ps1) to the guest. Use a standard account with a Unicode profile path containing spaces and a locally redirected Documents folder. Disconnect networking before running.
 
 ~~~powershell
-powershell.exe -NoProfile -File .\test_native_windows.ps1 -Archive .\rust-rag-1.1.3-windows-x64.zip -ExpectedSha256 <recorded-ZIP-SHA256>
+powershell.exe -NoProfile -File .\test_native_windows.ps1 -Archive .\rust-rag-1.2.0-windows-x64.zip -ExpectedSha256 <recorded-ZIP-SHA256>
 ~~~
 
 Record Defender and SmartScreen observations for the exact distribution bytes. The isolated Windows container test and host walkthrough are separate from this guest check.

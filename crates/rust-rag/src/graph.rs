@@ -362,7 +362,7 @@ pub(crate) fn entity_key(text: &str) -> String {
         .join(" ")
 }
 
-fn mentions(quote_key: &str, entity: &str) -> bool {
+pub(crate) fn mentions(quote_key: &str, entity: &str) -> bool {
     let word = |character: char| character.is_alphanumeric() || matches!(character, '_' | '-');
     quote_key.match_indices(entity).any(|(start, found)| {
         !quote_key[..start].chars().next_back().is_some_and(word)
@@ -711,8 +711,8 @@ fn insert_assertion(
 #[cfg(feature = "shared")]
 pub(crate) use shared_publication::{
     SharedDecision, SharedDisposition, SharedItem, SharedReviewError, decide_shared,
-    install_shared_review, publish_shared, retry_rejected_chunks, shared_rejections,
-    shared_review_queue,
+    install_shared_review, publish_shared, replace_scoped_review, retry_rejected_chunks,
+    scoped_review_installed, shared_rejections, shared_review_queue,
 };
 
 #[cfg(feature = "shared")]
@@ -739,6 +739,7 @@ mod shared_publication {
         pub policy_version: i64,
         pub actor: &'a str,
         pub idempotency_key: &'a str,
+        pub applicability: Option<&'a str>,
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -786,6 +787,20 @@ mod shared_publication {
                 PRIMARY KEY (actor,idempotency_key)
             );
             CREATE INDEX IF NOT EXISTS graph_shared_decisions_by_chunk ON graph_shared_decisions(chunk_row);
+            CREATE TABLE IF NOT EXISTS graph_scoped_decisions (
+                proposal_id TEXT PRIMARY KEY NOT NULL REFERENCES graph_shared_decisions(proposal_id) ON DELETE CASCADE,
+                edge_id TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                subject_key TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object TEXT NOT NULL,
+                quote TEXT NOT NULL,
+                quote_start INTEGER NOT NULL,
+                quote_end INTEGER NOT NULL,
+                applicability TEXT NOT NULL,
+                superseded INTEGER NOT NULL DEFAULT 0 CHECK (superseded IN (0,1))
+            );
+            CREATE INDEX IF NOT EXISTS graph_scoped_decisions_by_subject ON graph_scoped_decisions(subject_key);
             CREATE TABLE IF NOT EXISTS graph_shared_rejections (
                 chunk_row INTEGER PRIMARY KEY REFERENCES graph_chunks(chunk_row) ON DELETE CASCADE,
                 rejected_items INTEGER NOT NULL CHECK (rejected_items BETWEEN 1 AND 16)
@@ -1059,6 +1074,7 @@ mod shared_publication {
             policy_version,
             actor,
             idempotency_key,
+            applicability,
         } = *decision;
         ensure!(
             valid_proposal_id(id)
@@ -1072,7 +1088,7 @@ mod shared_publication {
         ensure!(installed(db)?, SharedReviewError::Stale);
         let result = || {
             json!({
-                "schema_version":1,"proposal_id":id,"status":if approve {"approved"} else {"dismissed"},
+                "schema_version":1,"proposal_id":id,"status":if applicability.is_some() {"approved_scoped"} else if approve {"approved"} else {"dismissed"},
                 "revision":revision,"fingerprint":fingerprint,"policy_version":policy_version,
             })
         };
@@ -1113,6 +1129,20 @@ mod shared_publication {
                 SharedReviewError::Conflict
             );
             current_source(db, chunk, root, decision)?;
+            let stored = if scoped_review_installed(db)? {
+                db.query_row(
+                    "SELECT applicability FROM graph_scoped_decisions WHERE proposal_id=?1",
+                    [id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+            } else {
+                None
+            };
+            ensure!(
+                stored.as_deref() == applicability,
+                SharedReviewError::Conflict
+            );
             return Ok(result());
         }
         let decided: bool = db.query_row(
@@ -1127,7 +1157,7 @@ mod shared_publication {
             [id], |row| row.get(0),
         ).optional()?.ok_or(SharedReviewError::Stale)?;
         current_source(db, chunk, root, decision)?;
-        if approve {
+        if approve && applicability.is_none() {
             insert_approved_assertion(db, id)?;
             db.execute(
                 "INSERT INTO graph_edge_provenance(edge_id,policy_version,reviewer)
@@ -1141,11 +1171,89 @@ mod shared_publication {
              VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
             params![actor, idempotency_key, id, chunk, revision, fingerprint, policy_version, approve],
         )?;
+        if let Some(applicability) = applicability {
+            ensure!(
+                approve && scoped_review_installed(db)?,
+                SharedReviewError::Stale
+            );
+            ensure!(db.execute(
+                "INSERT INTO graph_scoped_decisions
+                 (proposal_id,edge_id,subject,subject_key,predicate,object,quote,quote_start,quote_end,applicability)
+                 SELECT proposal_id,edge_id,subject,subject_key,predicate,object,quote,quote_start,quote_end,?2
+                 FROM graph_proposals WHERE proposal_id=?1",
+                params![id, applicability],
+            )? == 1, SharedReviewError::Stale);
+        }
         ensure!(
             db.execute("DELETE FROM graph_proposals WHERE proposal_id=?1", [id])? == 1,
             SharedReviewError::Stale
         );
         Ok(result())
+    }
+
+    // The transient proposal is never committed. Older servers cannot see
+    // scoped re-review work as ordinary pending proposals.
+    pub(crate) fn replace_scoped_review(
+        db: &Connection,
+        root: &Path,
+        decision: SharedDecision<'_>,
+    ) -> Result<Value> {
+        ensure!(
+            !db.is_autocommit(),
+            "Scoped renewal requires a write transaction."
+        );
+        ensure!(
+            decision.approve
+                && decision.applicability.is_some()
+                && valid_proposal_id(decision.id)
+                && scoped_review_installed(db)?,
+            SharedReviewError::Invalid
+        );
+        let material =
+            serde_json::to_vec(&[decision.id, decision.actor, decision.idempotency_key])?;
+        let replacement = format!("proposal_{}", &digest(&material)[..32]);
+        let id = decision.id;
+        let scoped = SharedDecision {
+            id: &replacement,
+            ..decision
+        };
+        let replay: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM graph_shared_decisions WHERE actor=?1 AND idempotency_key=?2)",
+            params![scoped.actor, scoped.idempotency_key], |row| row.get(0))?;
+        if replay {
+            return decide_shared(db, root, &scoped);
+        }
+        ensure!(
+            db.execute(
+                "INSERT INTO graph_proposals
+                 (proposal_id,edge_id,chunk_row,subject,subject_key,predicate,object,object_key,quote,quote_start,quote_end)
+                 SELECT ?2,a.edge_id,d.chunk_row,a.subject,a.subject_key,a.predicate,a.object,lower(a.object),a.quote,a.quote_start,a.quote_end
+                 FROM graph_scoped_decisions a JOIN graph_shared_decisions d USING(proposal_id)
+                 WHERE a.proposal_id=?1 AND a.superseded=0",
+                params![id, replacement])? == 1,
+            SharedReviewError::Stale
+        );
+        db.execute(
+            "INSERT INTO graph_shared_pending VALUES (?1,'scoped_re_review',?2)",
+            params![replacement, scoped.policy_version],
+        )?;
+        let result = decide_shared(db, root, &scoped)?;
+        ensure!(
+            db.execute(
+                "UPDATE graph_scoped_decisions SET superseded=1 WHERE proposal_id=?1",
+                [id]
+            )? == 1,
+            SharedReviewError::Stale
+        );
+        Ok(result)
+    }
+
+    pub(crate) fn scoped_review_installed(db: &Connection) -> Result<bool> {
+        Ok(db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='graph_scoped_decisions')",
+            [],
+            |row| row.get(0),
+        )?)
     }
 }
 
@@ -1926,6 +2034,7 @@ mod tests {
             policy_version: 8,
             actor: "reviewer-1",
             idempotency_key: "request-1",
+            applicability: None,
         };
         let tx = db
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -2013,6 +2122,7 @@ mod tests {
             policy_version: 7,
             actor: "reviewer",
             idempotency_key: "request",
+            applicability: None,
         };
         let tx = db
             .transaction_with_behavior(TransactionBehavior::Immediate)

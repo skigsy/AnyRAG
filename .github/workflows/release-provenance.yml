@@ -138,7 +138,7 @@ jobs:
           syft-version: v1.55.0
       - name: Inventory the locked Rust build graph
         env:
-          LINUX_RELEASE_FEATURES: pdf,docx,shared,dashboard
+          LINUX_RELEASE_FEATURES: pdf,docx,shared,dashboard,mcp
         run: |
           # Keep the inventory on the same feature selection as the default Docker build.
           grep -Fq "0) features=$LINUX_RELEASE_FEATURES ;;" Dockerfile

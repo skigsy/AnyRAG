@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Graph review · Any RAG</title>
+  <link rel="stylesheet" href="./review.css">
+  <script type="module" src="./review.js"></script>
+</head>
+<body>
+  <header class="topbar"><span class="wordmark">Any <span>RAG</span></span></header>
+  <main>
+    <h1>Graph review</h1>
+    <p class="intro">Inspect source quotes before approving a relationship for a setting.</p>
+    <fieldset id="workspace" disabled>
+      <legend class="sr-only">Graph review controls</legend>
+      <form id="queue-form" class="filters" autocomplete="off">
+        <label>Collection <input name="collection" required maxlength="64"></label>
+        <label>Queue
+          <select name="mode">
+            <option value="pending">Pending proposals</option>
+            <option value="scoped">Scoped reviews</option>
+          </select>
+        </label>
+        <button>Load queue</button>
+      </form>
+      <p id="status" role="status" aria-live="polite"></p>
+      <section id="queue" class="panel" aria-labelledby="queue-heading" hidden>
+        <h2 id="queue-heading">Review queue</h2>
+        <ol id="proposals"></ol>
+        <button id="next" type="button" hidden>Next page</button>
+      </section>
+      <section id="detail" class="panel" aria-labelledby="detail-heading" hidden>
+        <h2 id="detail-heading" tabindex="-1">Review source</h2>
+        <div id="primary"></div>
+        <ul id="existing-context" aria-label="Existing context"></ul>
+        <div id="approval" hidden>
+          <h3>Context for approval</h3>
+          <p>Reopen a citation from the same collection and select the words that establish the setting.</p>
+          <form id="context-form" class="filters" autocomplete="off">
+            <label>Context chunk ID <input name="chunk" required pattern="[0-9a-f]{64}" minlength="64" maxlength="64" spellcheck="false"></label>
+            <button>Reopen citation</button>
+          </form>
+          <div id="context-preview" hidden>
+            <p id="context-source" class="metadata"></p>
+            <pre id="context-text" tabindex="0" aria-label="Indexed passage to select"></pre>
+            <div class="actions">
+              <button id="use-selection" type="button">Add selected quote</button>
+              <button id="use-passage" type="button">Add entire passage</button>
+            </div>
+          </div>
+          <ol id="anchors" aria-label="Context selected for approval"></ol>
+          <form id="decision-form" autocomplete="off">
+            <label>Setting tags, one per line <textarea name="settings" required maxlength="1543" rows="2"></textarea></label>
+            <label class="confirmation"><input type="checkbox" name="confirm" required> I checked the direction and the exact setting evidence.</label>
+            <button id="approve" disabled>Approve scoped relationship</button>
+          </form>
+        </div>
+      </section>
+    </fieldset>
+    <details class="panel">
+      <summary>Confirm a relationship lookup</summary>
+      <fieldset id="lookup-workspace" disabled>
+        <legend class="sr-only">Relationship lookup</legend>
+        <form id="lookup-form" autocomplete="off">
+          <label>Starting entity <input name="root" required maxlength="160"></label>
+          <label>Original name, if you selected a canonical entity
+            <input name="rootAlias" maxlength="160"></label>
+          <label>Relationship types in order
+            <input name="predicates" required maxlength="292" aria-describedby="lookup-example" spellcheck="false">
+          </label>
+          <p id="lookup-example" class="metadata">For example, depends_on, requires. Use up to three types.</p>
+          <label>Intermediate entity names, if known <textarea name="via" maxlength="321" rows="2"
+                      aria-describedby="lookup-via"></textarea></label>
+          <p id="lookup-via" class="metadata">One per line in traversal order. Leave a line blank for an unnamed position.</p>
+          <label>Setting <input name="scope" maxlength="96"></label>
+          <button>Preview lookup</button>
+        </form>
+        <p id="lookup-status" role="status" aria-live="polite"></p>
+        <div id="lookup-preview" hidden>
+          <p id="lookup-interpretation"></p>
+          <p id="lookup-identity" class="metadata"></p>
+          <button id="lookup-confirm" type="button">Confirm and look up</button>
+        </div>
+        <div id="lookup-result" aria-label="Cited result"></div>
+      </fieldset>
+    </details>
+    <noscript>This review page needs JavaScript to reopen and verify citations.</noscript>
+  </main>
+</body>
+</html>
