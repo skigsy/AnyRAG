@@ -10,7 +10,7 @@ Start with one folder, a private index outside cloud sync folders, and a questio
 
 ### Search your own files
 
-Install the [Windows ZIP](#install-the-windows-zip), [run the Linux image](#try-personal-search-in-the-linux-image), or [build from source](#install-from-this-repository). For a standalone executable, set `state` to a new private index directory and `files` to your folder. Run:
+Install the [Windows ZIP](#install-the-windows-zip), [run the Linux image](#try-personal-search-in-the-linux-image), or [build from source](#install-from-this-repository). For a standalone executable, set `state` to a new private index directory and `files` to your folder. The ingest output shows which files were indexed, skipped, or failed.
 
 ~~~sh
 rust-rag --state-dir "$state" init
@@ -19,15 +19,15 @@ rust-rag --state-dir "$state" query 'workshop spare key' --json
 rust-rag --state-dir "$state" citation CHUNK_ID --revision REVISION --json
 ~~~
 
-Replace the sample question with one about your files. Use the `chunk_id` and `revision` from the result's `evidence`. Read the reopened passage and use its file and locator in your answer. If the evidence leaves a detail open, say which one. [Obsidian vaults](field-guide.md#personal-obsidian-recipe) · [PDFs](#install-from-this-repository) · [Word files](#word-documents) · [Model-generated answers](#personal-notes-and-shared-deployments)
+Replace the sample question with one about your files. Copy the `chunk_id` and `revision` from one entry in the result's `evidence` array into the last command. Read the reopened passage and use its file and locator in your answer. If the evidence leaves a detail open, say which one. [PowerShell walkthrough](#review-sources-and-explain-results) · [Obsidian vaults](field-guide.md#personal-obsidian-recipe) · [PDFs](#install-from-this-repository) · [Word files](#word-documents)
 
 ### Search a private team collection
 
-Use the [private Linux service runbook](../infra/private-vm.md#prepare-trusted-inputs) to set up a source folder, a signed reader and a collection grant. Pass `service-doctor`, start the service, and as an administrator run a sync and wait for it to complete. As the reader, ask the question at `POST /v1/query` and reopen the result at `GET /v1/evidence/{chunk_id}` using the same signed identity. [Start the service and verify access](../infra/private-vm.md#start-and-verify)
+Use the v1.2.0 Linux image or a source build with `shared`. A private deployment needs an identity issuer, HTTPS, and an administrator to configure a source folder and collection grants. The administrator runs `service-doctor`, starts the service and waits for the first sync. The reader asks the question at `POST /v1/query` and reopens the result at `GET /v1/evidence/{chunk_id}` under the same signed identity. [Private service runbook](../infra/private-vm.md#prepare-trusted-inputs) · [Try it with a synthetic identity](../infra/private-vm.md#synthetic-identity-and-tls-on-a-disposable-vm)
 
 ### Confirm a relationship across files
 
-Start with private team search and [enable Graph RAG](../infra/private-vm.md#enable-company-graph-rag). Review the quoted source behind each link you need. Preview the starting entity, ordered relations and setting, then confirm the proposed interpretation and reopen the citations for every step. The v1.2.0 Linux image supports the signed API and shared MCP. The dashboard is a browser client for the same service. [Guided lookup](../infra/private-vm.md#confirm-a-relationship-interpretation) · [Dashboard](../infra/review/README.md#confirm-a-read-only-lookup) · [MCP](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service)
+Start with the same shared build and [enable Graph RAG](../infra/private-vm.md#enable-company-graph-rag). A reviewer checks source quotes and approves the links. The reader previews the starting entity, ordered relations and setting, then confirms the proposed interpretation and reopens the citations for each step. A guided lookup follows the confirmed interpretation. A `caller_supplied` root is the name the caller chose, with no reviewed alias proof. [Guided lookup](../infra/private-vm.md#confirm-a-relationship-interpretation) · [Dashboard](../infra/review/README.md#confirm-a-read-only-lookup) · [Shared MCP](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) · [Upgrade from v1.1.3](../infra/private-vm.md#upgrade-or-roll-back-the-service)
 
 ## Install from this repository
 

@@ -124,7 +124,7 @@ jobs:
           docker image load --input "$output/rust-rag-linux-amd64.tar"
           test "$(docker image inspect --format '{{.Id}}' "$image")" = "$image_id"
           docker run --rm --network none --read-only "$image_id" capabilities --json |
-            jq -e '.compiled.shared_service and .compiled.local_dashboard'
+            jq -e '.compiled.shared_service and .compiled.local_dashboard and .compiled.mcp_stdio'
           container=$(docker create --network none "$image_id")
           trap 'docker rm "$container" >/dev/null' EXIT
           docker cp "$container:/usr/local/bin/rust-rag" "$RUNNER_TEMP/rust-rag"
