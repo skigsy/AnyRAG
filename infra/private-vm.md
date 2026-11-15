@@ -272,7 +272,9 @@ Check for `answer.status` equal to `answered`, catalog ID `KS-5815`, and two cit
 3. Delete the synthetic source at its authoritative location and sync again. Confirm the query omits the passage and the last citation returns 404.
 4. Revoke the test reader again. Restore the earlier backup with `POST /v1/admin/restore` and a JSON body containing the saved `backup_id`. Confirm reads are held in maintenance. Run a complete sync against current sources and policy and check that `sync.inventory_reconciled` is true. Call `POST /v1/admin/reopen` as an administrator. Verify the current grant denies the test reader. With a separate reader who retains a document grant, check that the deleted citation returns 404 and an unchanged control citation still resolves. The old backup has a separate retention policy.
 
-Shared sync holds an exclusive gate while updating evidence and projections. Query and evidence calls may return `409 WRITER_BUSY` with `Retry-After` until that work ends. A sync rejected as busy has not started. Model failures can yield lexical results in hybrid mode or cited passages without an answer. Read `effective_mode`, `answer.status`, and the response warnings to distinguish those cases. Vector-only requests require an embedding provider.
+Queries and citation reads can serve committed evidence under the current grants while background sync runs. After sync commits an edit or deletion, the previous citation returns `404`. A read can briefly return `409 WRITER_BUSY` with `Retry-After` during publication or exclusive maintenance. Retry after the indicated interval. A sync request rejected as busy has not started.
+
+Model failures can yield lexical results in hybrid mode or cited passages without an answer. Read `effective_mode`, `answer.status`, and the response warnings to distinguish those cases. Vector-only requests require an embedding provider.
 
 While an [OCR worker](ocr/README.md) parses a document, readers can query the last committed index under the current policy. Other maintenance writes still return busy. Sync checks the policy again before publishing the result, and a failed extraction keeps the previous revision.
 
