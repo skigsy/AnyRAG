@@ -30,6 +30,8 @@
 !crates/rust-rag/src/inference/runtime.rs
 !crates/rust-rag/src/lib.rs
 !crates/rust-rag/src/main.rs
+!crates/rust-rag/src/mcp.rs
+!crates/rust-rag/src/mcp/shared.rs
 !crates/rust-rag/src/model.rs
 !crates/rust-rag/src/model/clauses.rs
 !crates/rust-rag/src/ocr.rs
