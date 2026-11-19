@@ -68,7 +68,7 @@ Remote `jwks_url` and model URLs use HTTPS with the build's bundled WebPKI roots
 
 ### Synthetic identity and TLS on a disposable VM
 
-For the local company rehearsal, use Python 3.10+, OpenSSL, and nginx on the disposable VM. If the nginx package starts a default service, mask `nginx.service` before installing it on this test guest. The commands below launch a separate proxy bound to loopback. Prepare the image, storage, and model first so the test access tokens are fresh when you need them.
+For the local company rehearsal, use Python 3.10+, OpenSSL, and nginx on the disposable VM. If the nginx package starts a default service, mask `nginx.service` before installing it on this test guest. The commands below launch a separate proxy bound to loopback. Prepare the image and storage before minting the short-lived test tokens. Set up a model in advance for rehearsals that call one.
 
 ```sh
 umask 077
@@ -159,6 +159,18 @@ rust_rag_request GET /v1/evidence/replace-with-chunk-id
 ```
 
 Sync admission returns HTTP 202. Poll the status endpoint until `sync.status` is `complete` before querying. Investigate a terminal partial or failed sync using its per-collection status. Choose a `chunk_id` from the query's `evidence` array and use it in the citation URL. The citation response contains one object under `evidence`. Compare its `text` with the source between `start` and `end`, and check `revision` against the source SHA-256. The offsets count Unicode scalar values and the end is exclusive. Repeat both calls with the denied reader. The query omits the restricted passage and the exact citation returns HTTP 404. Publish a new policy version revoking the authorized reader and repeat the two calls with the original token to check that the current grant takes effect before the next sync.
+
+### Try Graph RAG with declared links
+
+On a disposable Linux host, [load the v1.2.0 image](#load-a-reviewed-release-archive) and [set up synthetic identity and local HTTPS](#synthetic-identity-and-tls-on-a-disposable-vm). Start from the [shared profile](shared.profile.example.json), use the `reference` folder source, and put the index, policy, backup and source directories on separate paths as in [Prepare trusted inputs](#prepare-trusted-inputs). For the fixture issuer, set `identity.jwks_file` and add the public-key directory mount below to the server and doctor commands. The private signing key and token files stay on the host.
+
+~~~sh
+--mount type=bind,src=/etc/rust-rag/public-keys,dst=/run/rust-rag/identity,readonly
+~~~
+
+1. **Configure typed Graph RAG.** Copy [the endpoint example](model-endpoint.example.json) to `/etc/rust-rag/relations.json` and keep its loopback URL and relation vocabulary. It provides the permitted predicates for the fixture. Set `"endpoints": {"relations": "/run/rust-rag/config/relations.json"}` and `"graph": {"mode": "typed", "extractor": "relations"}` in the profile. Mount that file read-only at the configured path. Give the collection an empty endpoint grant (`"endpoints": []`). This fixture needs no model process or weights.
+2. **Declare and review the links.** In two files under `reference/catalog/`, put `Pump-18 | requires | Relay-09` and `Relay-09 | uses | Bracket-27` in separate `anyrag-relations` fences. Follow [the signed review setup](#review-shared-graph-relationships). Set `trusted_paths` to the two relative file names, `routine_predicates` to `["uses"]`, and `high_impact_predicates` to `["requires"]`. For the synthetic identities, grant `reader` and `reader-control` access to `reference` and set `graph_review_subjects` to `["reader-control"]`. Leave `denied` without a grant. Publish the policy, run the doctor and start the service with [the existing container command](#start-and-verify). Sync as `admin`. Use `reader-control` to reopen and approve the `requires` proposal. The trusted `uses` declaration can publish during sync.
+3. **Verify two hops and denied access.** As `reader`, use [the guided request](#confirm-a-relationship-interpretation) with root `Pump-18`, ordered predicates `["requires", "uses"]`, terminal predicate `uses`, and both hop bounds set to `2`. Confirm the preview. Check the terminal value is `Bracket-27` and reopen both citations at their exact revisions. Repeat the lookup and citation requests as `denied`. Expect no supported path and HTTP 404 for both citations. Use the [model setup](#enable-company-graph-rag) if you want to extract links from prose.
 
 ### Verify a generated Graph RAG answer
 
@@ -284,7 +296,7 @@ Admin sync status includes per-collection graph and vector progress, plus any pr
 
 For a browser workflow, use the [shared Graph review dashboard](review/README.md) through a private gateway with per-user sign-in. You can also use the signed API from a terminal.
 
-Use the [v1.0.0 Linux image](#load-a-reviewed-release-archive) or a current source build with shared service support. Use a folder-backed collection with [typed graph enabled](#enable-company-graph-rag) and a configured extractor. Merge the following keys into the collection grant in a new access policy version, preserving any other required read roles and endpoint grants. Give catalog write access only to people or systems authorized to declare current relationships. Each trusted path is an exact collection-relative filename. In this example the issuer's reviewer subject maps to `maintenance-reviewer` in the top-level `subjects` policy map. The collection grants that role both read and review permissions. [Rehearse signed review and recovery on synthetic data](../docs/rehearsal.md)
+Use the [v1.2.0 Linux image](#load-a-reviewed-release-archive) or a current source build with shared service support. Use a folder-backed collection with typed Graph RAG enabled. Merge the following keys into the collection grant in a new access policy version, preserving any other required read roles and endpoint grants. Give catalog write access only to people or systems authorized to declare current relationships. Each trusted path is an exact collection-relative filename. The issuer's reviewer subject maps to `maintenance-reviewer` in the top-level `subjects` policy map. The collection grants that role both read and review permissions. The `relations` endpoint grant enables prose extraction. Use an empty grant for [the declared-link walkthrough](#try-graph-rag-with-declared-links). [Rehearse signed review and recovery on synthetic data](../docs/rehearsal.md)
 
 ```json
 {
@@ -410,6 +422,8 @@ For model-generated answers, set `"explicit_answer_state": true` in the selected
 ### Upgrade or roll back the service
 
 Keep the previous image digest, its profile and state, and a verified backup. Test the new image with a separate copy of the state and keep it off the client listener. If `service-doctor` reports a different deployment, provision a fresh state directory and run a complete sync against authoritative sources and current policy. A new graph extractor can change the binding even when the endpoint and model are unchanged. Backups from the previous binding stay with its compatible image and profile. Verify required graph paths and exact citations before switching traffic.
+
+Use the same cutover when adding a collection or enabling Graph on an existing collection. Both change the configuration bound to the index. Prepare the new profile, source mounts and policy version together. Keep the previous profile, policy, state and backup available for rollback. Start the new configuration with fresh state and run a complete sync. Check an existing citation, a citation from any new collection, and denial for a reader without its grant before switching traffic. If only the readers of an existing collection change, publish a new policy version and check access using their existing signed tokens.
 
 To roll back, close the client listener or remove the service from its proxy upstream. Start the previous image with its compatible profile and state. Restore its verified backup, run a complete sync against current sources and policy, and explicitly reopen. Check current citations, deleted sources, and denied identities before restoring client traffic. Keep the previous and new indexes separate throughout the cutover.
 

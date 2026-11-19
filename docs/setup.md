@@ -27,7 +27,7 @@ Use the v1.2.0 Linux image or a source build with `shared`. A private deployment
 
 ### Confirm a relationship across files
 
-Start with the same shared build and [enable Graph RAG](../infra/private-vm.md#enable-company-graph-rag). A reviewer checks source quotes and approves the links. The reader previews the starting entity, ordered relations and setting, then confirms the proposed interpretation and reopens the citations for each step. A guided lookup follows the confirmed interpretation. A `caller_supplied` root is the name the caller chose, with no reviewed alias proof. [Guided lookup](../infra/private-vm.md#confirm-a-relationship-interpretation) · [Dashboard](../infra/review/README.md#confirm-a-read-only-lookup) · [Shared MCP](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) · [Upgrade from v1.1.3](../infra/private-vm.md#upgrade-or-roll-back-the-service)
+Start with the v1.2.0 Linux image and [walk through Graph RAG with declared links](../infra/private-vm.md#try-graph-rag-with-declared-links). The walkthrough uses two Markdown files, a signed reviewer and two readers. It works without a model server. A guided lookup previews the start entity, ordered relations and applicable setting. The reader confirms the interpretation and reopens the evidence for each hop. Add [model extraction](../infra/private-vm.md#enable-company-graph-rag) when links need to come from prose. [Dashboard](../infra/review/README.md#confirm-a-read-only-lookup) · [Shared MCP](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) · [Upgrade from v1.1.3](../infra/private-vm.md#upgrade-or-roll-back-the-service)
 
 ## Install from this repository
 
@@ -59,17 +59,24 @@ Choose the features you need. Re-run install with the same options and `--force`
 Put the standalone Windows x64 ZIP and its release checksum manifest in the same local folder. In PowerShell, change to that folder and run:
 
 ~~~powershell
-$archive = 'rust-rag-1.2.0-windows-x64.zip'
-$expected = (Get-Content -LiteralPath 'SHA256SUMS.txt' |
-  Where-Object { $_ -match ('^[a-fA-F0-9]{64}  ' + [regex]::Escape($archive) + '$') } |
-  ForEach-Object { ($_ -split '  ', 2)[0] })
-if (!$expected -or (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash -ne $expected) {
-  throw 'The ZIP does not match the release checksum.'
+& {
+  $archive = 'rust-rag-1.2.0-windows-x64.zip'
+  $expected = @(Get-Content -LiteralPath 'SHA256SUMS.txt' -ErrorAction Stop |
+    Where-Object { $_ -match ('^[a-fA-F0-9]{64}  ' + [regex]::Escape($archive) + '$') } |
+    ForEach-Object { ($_ -split '  ', 2)[0] })
+  if ($expected.Count -ne 1) {
+    throw 'Expected one release checksum for the ZIP.'
+  }
+  $actual = $null
+  $actual = Get-FileHash -Algorithm SHA256 -LiteralPath $archive -ErrorAction Stop
+  if (!$actual -or $actual.Hash -ne $expected[0]) {
+    throw 'The ZIP does not match the release checksum.'
+  }
+  $install = Join-Path $env:LOCALAPPDATA ('AnyRAG\' + [guid]::NewGuid())
+  Expand-Archive -LiteralPath $archive -DestinationPath $install -ErrorAction Stop
+  $env:PATH = "$install;$env:PATH"
+  rust-rag --version
 }
-$install = Join-Path $env:LOCALAPPDATA ('AnyRAG\' + [guid]::NewGuid())
-Expand-Archive -LiteralPath $archive -DestinationPath $install -ErrorAction Stop
-$env:PATH = "$install;$env:PATH"
-rust-rag --version
 ~~~
 
 The ZIP supplies `rust-rag.exe` and bundles SQLite. The install folder and PATH change are local to your account and the PATH change applies to the current shell. Continue with the [source review walkthrough](#review-sources-and-explain-results) in that shell.
@@ -359,7 +366,7 @@ For MCP, append `--reranker-profile` and the profile path to the server's launch
 
 For team use, choose a trusted OIDC issuer and enforce grants with the [shared profile](../infra/shared.profile.example.json) and [private VM runbook](../infra/private-vm.md). For company Graph RAG, use `rust-rag plan company --json` to start with the portable shared service and select a target. The [deployment recipes](../infra/README.md#deployment-targets) describe host and provider requirements. The [reference](rag-reference.md) explains adapters you can integrate, including pgvector and rerankers.
 
-Use the v1.0.0 portable Linux image or a source build with `shared` to enable a collection publication policy. A team can publish routine catalog links automatically and send prose, conflicts, or high-impact links to review. Reviewers use their own signed tokens and need read and review grants for the collection. [Company publication and review](../infra/private-vm.md#review-shared-graph-relationships) · [Operator rehearsal](rehearsal.md)
+Use the v1.2.0 portable Linux image or a source build with `shared` to enable a collection publication policy. A team can publish routine catalog links automatically and send prose, conflicts, or high-impact links to review. Reviewers use their own signed tokens and need read and review grants for the collection. [Company publication and review](../infra/private-vm.md#review-shared-graph-relationships) · [Operator rehearsal](rehearsal.md)
 
 ### Rehearse private Graph RAG with synthetic sources
 
