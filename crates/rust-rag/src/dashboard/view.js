@@ -7,21 +7,92 @@ const content = document.getElementById("dashboard-content");
 const connection = document.getElementById("connection-state");
 const notice = document.getElementById("connection-notice");
 const lastRefresh = document.getElementById("last-refresh");
+const announcement = document.getElementById("dashboard-announcement");
+const retryAge = document.getElementById("retry-age");
+const workspace = document.getElementById("overview");
+const title = document.getElementById("workspace-title");
+const ingestReport = document.getElementById("ingest-report");
+const sectionLinks = document.querySelectorAll(".rail nav a");
+const views = {
+  overview: ["overview", "Overview"],
+  pipeline: ["coverage", "Coverage"],
+  "indexed-sources": ["sources", "Sources"],
+  "recent-activity": ["activity", "Activity"],
+  "graph-review": ["graph", "Graph review"]
+};
 let code;
 let timer;
 let inFlight = false;
 let lastRead;
+let selectedProposal;
 
-function state(label, tone, detail = "") {
-  if (connection.textContent !== label) connection.textContent = label;
+function showProposal(root, requested) {
+  const buttons = [...root.querySelectorAll("[data-review-item]")];
+  const selected = buttons.find(button => button.dataset.reviewItem === requested) ?? buttons[0];
+  for (const button of buttons) button.setAttribute("aria-pressed", String(button === selected));
+  for (const detail of root.querySelectorAll(".review-list > li")) {
+    detail.hidden = detail.id !== selected?.dataset.reviewItem;
+  }
+  selectedProposal = selected?.dataset.reviewItem;
+}
+
+function state(label, tone, detail = "", message = label) {
+  if (connection.textContent !== label) {
+    connection.textContent = label;
+    announcement.textContent = message;
+  }
   connection.dataset.tone = tone;
   if (notice.textContent !== detail) notice.textContent = detail;
   notice.hidden = detail === "";
 }
 
 function replaceCards(html) {
-  const page = new DOMParser().parseFromString(html, "text/html");
-  content.replaceChildren(...page.body.children);
+  const next = new DOMParser().parseFromString(html, "text/html")
+    .getElementById("snapshot-observation");
+  const current = document.getElementById("snapshot-observation");
+  if (!next) return;
+  showProposal(next, selectedProposal);
+  if (!current) {
+    content.replaceChildren(next);
+    return;
+  }
+  const focused = document.activeElement?.dataset.focusKey;
+  const reviewHadFocus = current.querySelector("#graph-review")?.contains(document.activeElement);
+  const open = new Set([...current.querySelectorAll("details[open][id]")].map(node => node.id));
+  for (const details of next.querySelectorAll("details[id]")) details.open = open.has(details.id);
+  const ordered = [...next.children];
+  for (const [index, section] of ordered.entries()) {
+    const existing = current.children[index];
+    if (!existing) current.append(section);
+    else if (!existing.isEqualNode(section)) existing.replaceWith(section);
+  }
+  while (current.children.length > ordered.length) current.lastElementChild.remove();
+  Object.assign(current.dataset, next.dataset);
+  if (focused && document.activeElement === document.body) {
+    const target = [...current.querySelectorAll("[data-focus-key]")]
+      .find(node => node.dataset.focusKey === focused);
+    const review = reviewHadFocus ? current.querySelector("#graph-review") : null;
+    const replacement = target ??
+      review?.querySelector(".review-list li:not([hidden]) button") ??
+      review?.querySelector("[aria-pressed='true']") ?? review?.querySelector("h2");
+    replacement?.focus({ preventScroll: true });
+  }
+}
+
+function updateNav(hash = location.hash) {
+  const active = document.getElementById(hash.slice(1));
+  const section = active?.closest("#pipeline, #indexed-sources, #recent-activity, #graph-review, #ingest-report");
+  const id = section?.hidden ? "overview" :
+    section?.id === "ingest-report" ? "recent-activity" : section?.id ?? "overview";
+  const [view, heading] = views[id];
+  workspace.dataset.view = view;
+  if (title.textContent !== heading) title.textContent = heading;
+  for (const link of sectionLinks) {
+    const target = document.getElementById(link.hash.slice(1));
+    link.hidden = !target || target.hidden;
+    if (link.hash === "#" + id) link.setAttribute("aria-current", "location");
+    else link.removeAttribute("aria-current");
+  }
 }
 
 function showReadTime() {
@@ -31,7 +102,23 @@ function showReadTime() {
   const timestamp = new Date(seconds * 1000);
   lastRefresh.dataset.observedAt = String(seconds);
   lastRefresh.dateTime = timestamp.toISOString();
-  lastRefresh.textContent = lastRefresh.dateTime.slice(11, 19) + " UTC";
+  lastRefresh.title = lastRefresh.dateTime.replace("T", " ").slice(0, 19) + " UTC";
+  lastRefresh.textContent = lastRefresh.title;
+}
+
+function showStale(detail) {
+  const review = document.getElementById("graph-review");
+  if (review && !review.dataset.stale) {
+    const height = review.getBoundingClientRect().height;
+    const replacement = document.createElement("p");
+    replacement.textContent = "Graph review will return after the next successful refresh.";
+    review.replaceChildren(replacement);
+    review.dataset.stale = "true";
+    review.style.minHeight = `${height}px`;
+  }
+  const label = document.getElementById("verdict-label");
+  if (label && lastRefresh.title) label.textContent = "As of " + lastRefresh.title;
+  state("Stale", "warn", lastRead ? "" : detail, "Dashboard refresh failed. Retrying.");
 }
 
 async function refresh() {
@@ -48,41 +135,58 @@ async function refresh() {
       code = undefined;
       lastRead = undefined;
       delete lastRefresh.dataset.observedAt;
+      lastRefresh.removeAttribute("datetime");
+      lastRefresh.removeAttribute("title");
       lastRefresh.textContent = "—";
+      retryAge.textContent = "";
       content.replaceChildren();
       sources.hidden = true;
+      ingestReport.hidden = true;
+      selectedProposal = undefined;
       sourceRequest?.abort();
       sourceRequest = undefined;
       sourceResults.replaceChildren();
+      sourceStatus.textContent = "";
       document.getElementById("indexed-source-id").value = "";
       reviewFile.value = "";
       reviewResults.replaceChildren();
       pairing.hidden = false;
       state("Pairing required", "warn", "Use the access code from this dashboard launch.");
+      input.focus();
       return;
     }
     if (!reply.ok) throw new Error("refresh");
     const html = await reply.text();
+    const pairingHadFocus = pairing.contains(document.activeElement);
     pairing.hidden = true;
     if (reply.headers.get("X-AnyRAG-Index-State") === "available") {
+      const wasConnected = connection.textContent === "Connected";
+      const previousSync = lastRead?.dataset.syncAt;
+      const previousIngest = lastRead?.dataset.ingest;
       replaceCards(html);
       sources.hidden = false;
+      ingestReport.hidden = false;
       lastRead = document.getElementById("snapshot-observation");
       showReadTime();
-      state("Connected", "good");
+      state("Connected", "good", "", "Dashboard connected.");
+      if (wasConnected && previousSync !== lastRead.dataset.syncAt && lastRead.dataset.syncAt !== "0") {
+        announcement.textContent = "Full sync completed at " + new Date(Number(lastRead.dataset.syncAt) * 1000).toISOString().slice(11, 19) + " UTC.";
+      } else if (wasConnected && previousIngest !== lastRead.dataset.ingest &&
+          /-(partial|error)$/.test(lastRead.dataset.ingest)) {
+        announcement.textContent = "Latest ingest needs review.";
+      }
+      if (pairingHadFocus) title.focus({ preventScroll: true });
     } else {
       if (!lastRead) replaceCards(html);
-      else document.getElementById("graph-review")?.remove();
-      state("Stale", "warn", lastRead
-        ? "The index could not be read. Showing the last successful refresh."
-        : "The index could not be read. The dashboard will retry.");
+      showStale("The index could not be read. The dashboard will retry.");
     }
   } catch {
-    document.getElementById("graph-review")?.remove();
-    state("Stale", "warn", lastRead
-      ? "Refresh failed. Showing the last successful refresh."
-      : "Refresh failed. Check that the dashboard command is still running.");
+    showStale("Refresh failed. Check that the dashboard command is still running.");
   } finally {
+    retryAge.textContent = connection.textContent === "Stale" && lastRead
+      ? "Retrying · " + Math.max(0, Math.floor(Date.now() / 1000) - Number(lastRead.dataset.observedAt)) + "s since refresh"
+      : "";
+    updateNav();
     inFlight = false;
     if (code && !document.hidden) timer = setTimeout(refresh, 2000);
   }
@@ -106,18 +210,59 @@ document.addEventListener("visibilitychange", () => {
   else refresh();
 });
 
+window.addEventListener("hashchange", () => updateNav());
+for (const link of sectionLinks) {
+  link.addEventListener("click", (event) => {
+    if (event.ctrlKey || event.shiftKey || event.metaKey || event.altKey) return;
+    event.preventDefault();
+    if (location.hash !== link.hash) history.pushState(null, "", link.hash);
+    updateNav(link.hash);
+    window.scrollTo(0, 0);
+    title.focus({ preventScroll: true });
+  });
+}
+updateNav();
+content.addEventListener("click", (event) => {
+  const proposal = event.target.closest("button[data-review-item]");
+  if (proposal) {
+    showProposal(content, proposal.dataset.reviewItem);
+    return;
+  }
+  const source = event.target.closest("button[data-review-source]")?.dataset.reviewSource;
+  if (source && /^[a-f0-9]{64}$/.test(source)) {
+    location.hash = "#indexed-sources";
+    updateNav();
+    showSources({ id: source });
+    return;
+  }
+  const link = event.target.closest(".attention-list a, a[data-live-action]");
+  if (!link || event.ctrlKey || event.shiftKey || event.metaKey || event.altKey) return;
+  updateNav(link.hash);
+  const target = document.getElementById(link.hash.slice(1));
+  const details = target?.matches("details") ? target : target?.querySelector(".activity-details");
+  if (details) {
+    details.open = true;
+    details.querySelector("summary").focus({ preventScroll: true });
+  }
+});
+
 const sources = document.getElementById("indexed-sources");
 const sourceResults = document.getElementById("source-results");
+const sourceStatus = document.getElementById("source-status");
 const loadSources = document.getElementById("load-sources");
 let sourceRequest;
+let sourcePage = 1;
 
-async function showSources(id) {
+async function showSources({ id, page = 1 } = {}) {
   sourceRequest?.abort();
   const request = new AbortController();
   sourceRequest = request;
-  sourceResults.textContent = "Loading…";
+  const focused = document.activeElement;
+  sourceStatus.textContent = "Loading…";
   try {
-    const response = await fetch(id ? "/sources/" + id : "/sources", {
+    const sourcePath = id ? "/sources/" + id : "/sources";
+    const path = page === 1 ? sourcePath : sourcePath + "/page/" + page;
+    const response = await fetch(path, {
       headers: { Authorization: "Bearer " + code },
       mode: "same-origin", credentials: "omit", cache: "no-store", redirect: "error",
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(3500)])
@@ -127,10 +272,16 @@ async function showSources(id) {
       throw new Error("session expired");
     }
     if (!response.ok) throw new Error("source read");
-    const page = new DOMParser().parseFromString(await response.text(), "text/html");
-    if (sourceRequest === request) sourceResults.replaceChildren(...page.body.children);
+    const parsed = new DOMParser().parseFromString(await response.text(), "text/html");
+    if (sourceRequest === request) {
+      if (!id) sourcePage = page;
+      const moveFocus = document.activeElement === focused;
+      sourceResults.replaceChildren(...parsed.body.children);
+      sourceStatus.textContent = "";
+      if (moveFocus) sourceResults.querySelector("h3, button")?.focus();
+    }
   } catch {
-    if (sourceRequest === request) sourceResults.textContent = "The source could not be read. Try again.";
+    if (sourceRequest === request) sourceStatus.textContent = "The source could not be read. Try again.";
   }
 }
 
@@ -138,11 +289,16 @@ loadSources.addEventListener("click", () => showSources());
 document.getElementById("open-indexed-source").addEventListener("submit", (event) => {
   event.preventDefault();
   const id = document.getElementById("indexed-source-id").value.trim().toLowerCase();
-  if (/^[a-f0-9]{64}$/.test(id)) showSources(id);
+  if (/^[a-f0-9]{64}$/.test(id)) showSources({ id });
 });
 sourceResults.addEventListener("click", (event) => {
-  const id = event.target.closest("button[data-source-id]")?.dataset.sourceId;
-  if (id && /^[a-f0-9]{64}$/.test(id)) showSources(id);
+  const button = event.target.closest("button");
+  if (!button) return;
+  const id = button.dataset.sourceId;
+  const page = button.dataset.sourcePage;
+  if (id && /^[a-f0-9]{64}$/.test(id)) showSources({ id, page: Number(button.dataset.passagePage ?? 1) });
+  if (page && /^\d+$/.test(page)) showSources({ page: Number(page) });
+  if (button.id === "back-to-sources") showSources({ page: sourcePage });
 });
 
 const reviewFile = document.getElementById("ingest-review-file");

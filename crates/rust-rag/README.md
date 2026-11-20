@@ -95,7 +95,11 @@ rust-rag --state-dir /private/index health --html /private/health.html
 
 Pair the browser with the access code shown in your terminal. Use `dashboard --no-open` to open the displayed address yourself. The dashboard uses IPv4 loopback and refreshes while its tab is visible. It shows the time of the last successful refresh when the index cannot be read. Press Ctrl+C in the dashboard terminal to stop the session.
 
-Use `dashboard --review-queue` to show pending graph proposals and their exact quotes for this session. Use the terminal with the same state directory to apply review decisions.
+Use **Overview** for index health and **Coverage** to see what keyword, vector, and graph retrieval have indexed. **Activity** shows recent opt-in history. The last full sync reflects a successful `ingest --sync`. The latest ingest can complete without syncing or retain prior passages after a file fails. Open **Review affected files** to load a local `ingest --review --json` report.
+
+In **Sources**, browse the index or paste a source ID from query output to see passage previews, offsets, revision and chunk IDs. Use `citation <chunk-id> --revision <revision>` for the complete indexed passage.
+
+Launch with `dashboard --review-queue` to open **Graph review**. Select a proposed link to see its direction and exact source quote. Use the terminal with the same state directory to apply review decisions.
 
 On a native Linux Docker host, a portable image that includes the dashboard can read a mounted private index. Load the image with the [Linux release instructions](../../infra/private-vm.md#load-a-reviewed-release-archive) in the same shell. Set the host index path and open the displayed address in a browser on that host.
 

@@ -114,51 +114,67 @@ struct ReviewProposal {
     object: String,
     quote: String,
     path: String,
+    chunk_id: String,
+    #[serde(skip)]
+    source_id: Option<String>,
     start: u64,
     end: u64,
 }
 
-fn read_sources(requested: &Path, source: Option<&str>) -> Result<String> {
+const MAX_SOURCE_PAGE: u32 = 2_000;
+
+fn read_sources(requested: &Path, source: Option<&str>, page_number: u32) -> Result<String> {
     let state = files::state_directory(requested, false)?;
     let mut db = open_index_reader(&state).map_err(|_| anyhow::anyhow!("Index unavailable"))?;
     let db = db.transaction()?;
     match source {
         None => {
             let mut query =
-                db.prepare("SELECT source_id,path FROM sources ORDER BY source_id LIMIT 51")?;
-            let entries = query.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+                db.prepare("SELECT source_id,path FROM sources ORDER BY path LIMIT 51 OFFSET ?1")?;
+            let offset = (page_number - 1) * 50;
+            let entries = query.query_map([offset], |row| Ok((row.get(0)?, row.get(1)?)))?;
             Ok(view::sources(
                 entries.collect::<rusqlite::Result<Vec<_>>>()?,
+                page_number,
             ))
         }
         Some(id) => {
-            let path: Option<String> = db
-                .query_row("SELECT path FROM sources WHERE source_id=?1", [id], |row| {
-                    row.get(0)
-                })
+            let (join, revision) = store::source_revision_sql(&db)?;
+            let source: Option<(String, String)> = db
+                .query_row(
+                    &format!("SELECT s.path,{revision} FROM sources s {join} WHERE s.source_id=?1"),
+                    [id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
                 .optional()?;
-            let Some(path) = path else {
+            let Some((path, revision)) = source else {
                 return Ok(view::missing_source());
             };
             let page = store::page_sql(&db)?;
             let anchor = store::anchor_sql(&db)?;
             let mut query = db.prepare(&format!(
-                "SELECT c.start,c.end,{page},{anchor},substr(p.text,1,1200) FROM chunks c
+                "SELECT c.start,c.end,{page},{anchor},substr(p.text,1,1200),c.chunk_id,length(p.text) FROM chunks c
                  JOIN passages p ON p.rowid=c.row_id WHERE c.source_id=?1
-                 ORDER BY c.row_id LIMIT 31"
+                 ORDER BY c.row_id LIMIT 31 OFFSET ?2"
             ))?;
-            let entries = query.query_map([id], |row| {
+            let offset = (page_number - 1) * 30;
+            let entries = query.query_map(rusqlite::params![id, offset], |row| {
                 Ok(view::SourcePassage {
                     start: row.get(0)?,
                     end: row.get(1)?,
                     page: row.get(2)?,
                     anchor: row.get(3)?,
                     text: row.get(4)?,
+                    id: row.get(5)?,
+                    characters: row.get(6)?,
                 })
             })?;
             Ok(view::source_passages(
+                id,
                 &path,
+                &revision,
                 entries.collect::<rusqlite::Result<Vec<_>>>()?,
+                page_number,
             ))
         }
     }
@@ -351,9 +367,18 @@ fn read_review_queue(requested: &Path) -> Result<ReviewQueue> {
     let mut db =
         open_index_reader(&state).map_err(|_| anyhow::anyhow!("Review queue unavailable."))?;
     let tx = db.transaction()?;
-    let queue: ReviewQueue =
+    let mut queue: ReviewQueue =
         serde_json::from_value(crate::graph::review_queue(&tx, REVIEW_QUEUE_LIMIT)?)?;
     ensure!(queue.schema_version == 1 && queue.proposals.len() <= REVIEW_QUEUE_LIMIT);
+    for proposal in &mut queue.proposals {
+        proposal.source_id = tx
+            .query_row(
+                "SELECT source_id FROM chunks WHERE chunk_id=?1",
+                [&proposal.chunk_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+    }
     tx.commit()?;
     Ok(queue)
 }

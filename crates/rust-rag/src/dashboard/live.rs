@@ -24,8 +24,8 @@ enum Route {
     Style,
     Script,
     Cards,
-    Sources,
-    Source(String),
+    Sources(u32),
+    Source(String, u32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,16 +119,36 @@ fn route(
             }
             match path {
                 "/cards" => Ok(Route::Cards),
-                "/sources" => Ok(Route::Sources),
-                _ => path
-                    .strip_prefix("/sources/")
-                    .filter(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
-                    .map(|id| Route::Source(id.to_owned()))
+                "/sources" => Ok(Route::Sources(1)),
+                path if path.starts_with("/sources/page/") => path["/sources/page/".len()..]
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|page| (1..=super::MAX_SOURCE_PAGE).contains(page))
+                    .map(Route::Sources)
                     .ok_or(Rejection::NotFound),
+                _ => {
+                    let source = path.strip_prefix("/sources/").ok_or(Rejection::NotFound)?;
+                    let (id, page) = if let Some((id, page)) = source.split_once("/page/") {
+                        (id, source_page(page)?)
+                    } else {
+                        (source, 1)
+                    };
+                    if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                        return Err(Rejection::NotFound);
+                    }
+                    Ok(Route::Source(id.to_owned(), page))
+                }
             }
         }
         _ => Err(Rejection::NotFound),
     }
+}
+
+fn source_page(page: &str) -> std::result::Result<u32, Rejection> {
+    page.parse::<u32>()
+        .ok()
+        .filter(|page| (1..=super::MAX_SOURCE_PAGE).contains(page))
+        .ok_or(Rejection::NotFound)
 }
 
 fn read_headers<'a>(
@@ -225,12 +245,13 @@ impl Session<'_> {
             Ok(Route::Shell) => ("text/html", self.shell.as_str(), ""),
             Ok(Route::Style) => ("text/css", view::STYLE, ""),
             Ok(Route::Script) => ("text/javascript", view::SCRIPT, ""),
-            Ok(route @ (Route::Sources | Route::Source(_))) => {
-                let id = match route {
-                    Route::Source(ref id) => Some(id.as_str()),
-                    _ => None,
+            Ok(route @ (Route::Sources(_) | Route::Source(..))) => {
+                let (id, page) = match route {
+                    Route::Source(ref id, page) => (Some(id.as_str()), page),
+                    Route::Sources(page) => (None, page),
+                    _ => unreachable!(),
                 };
-                return match super::read_sources(self.requested, id) {
+                return match super::read_sources(self.requested, id, page) {
                     Ok(html) => write_response(&mut stream, "200 OK", "text/html", "", &html),
                     Err(_) => {
                         write_response(&mut stream, "503 Service Unavailable", "text/plain", "", "")
@@ -380,6 +401,22 @@ mod tests {
         let authorized = format!("{canonical}Authorization: Bearer {code}\r\n");
         assert_eq!(check("GET", "/", &canonical), Ok(Route::Shell));
         assert_eq!(check("GET", "/cards", &authorized), Ok(Route::Cards));
+        assert_eq!(
+            check("GET", "/sources/page/2", &authorized),
+            Ok(Route::Sources(2))
+        );
+        assert_eq!(
+            check("GET", "/sources/page/2", &canonical),
+            Err(Rejection::Unauthorized)
+        );
+        assert_eq!(
+            check("GET", "/sources/page/0", &authorized),
+            Err(Rejection::NotFound)
+        );
+        assert_eq!(
+            check("GET", "/sources/page/2001", &authorized),
+            Err(Rejection::NotFound)
+        );
         assert_eq!(
             check("GET", "/cards", &canonical),
             Err(Rejection::Unauthorized)
