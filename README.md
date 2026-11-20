@@ -6,6 +6,16 @@
 
 Start with a working pipeline that indexes your files, finds relevant passages, and links back to the source. Use it for a folder of notes, then add private team access or Graph RAG when your project calls for it.
 
+## When is RAG worth it?
+
+| If your work looks like this | Start with |
+| --- | --- |
+| A one-off question about known files, or an exact term your editor can find. | **Open the files or use file search.** Give a model those files directly if you need a summary. |
+| Recurring questions across scattered or changing documents, or a need for citations people can reopen and permissions that limit access by collection. | **RAG.** An index finds candidate passages for each question. AnyRAG starts with keyword search. Semantic search and model answers are optional. |
+| Answers that depend on a chain, such as which relay a pump requires and which bracket that relay uses. | **Graph RAG.** Declare or review the links, confirm the path, and reopen the evidence for each step. |
+
+Query the source system for live records and exact totals. A whole-collection summary needs a workflow that covers the full collection. An index takes upkeep and can miss evidence. Try a few real questions and compare how long it takes to get a correct, verifiable result. There’s no universal file-count cutoff.
+
 **[Start with your coding agent ↓](#set-it-up-with-an-agent)** · [Manual quickstart](#quickstart-rust-personal-search)
 
 ## Choose a setup
