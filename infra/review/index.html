@@ -5,89 +5,153 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
-  <title>Graph review · Any RAG</title>
+  <title>Operator console · Any RAG</title>
   <link rel="stylesheet" href="./review.css">
   <script type="module" src="./review.js"></script>
 </head>
-<body>
-  <header class="topbar"><span class="wordmark">Any <span>RAG</span></span></header>
-  <main>
-    <h1>Graph review</h1>
-    <p class="intro">Inspect source quotes before approving a relationship for a setting.</p>
-    <fieldset id="workspace" disabled>
-      <legend class="sr-only">Graph review controls</legend>
-      <form id="queue-form" class="filters" autocomplete="off">
-        <label>Collection <input name="collection" required maxlength="64"></label>
-        <label>Queue
-          <select name="mode">
-            <option value="pending">Pending proposals</option>
-            <option value="scoped">Scoped reviews</option>
-          </select>
-        </label>
-        <button>Load queue</button>
-      </form>
-      <p id="status" role="status" aria-live="polite"></p>
-      <section id="queue" class="panel" aria-labelledby="queue-heading" hidden>
-        <h2 id="queue-heading">Review queue</h2>
-        <ol id="proposals"></ol>
-        <button id="next" type="button" hidden>Next page</button>
+<body class="ops-console">
+  <a class="ops-skip" href="#ops-view-title">Skip to dashboard content</a>
+  <div class="ops-shell">
+    <aside class="ops-rail">
+      <div class="ops-rail-inner">
+        <div class="ops-brand"><span class="wordmark">Any <span>RAG</span></span><span class="ops-caption">Operator console</span></div>
+        <nav class="ops-nav" aria-label="Dashboard sections">
+          <button type="button" data-view="overview" aria-current="page"><span class="nav-icon icon-overview" aria-hidden="true"></span>Overview</button>
+          <button type="button" data-view="coverage"><span class="nav-icon icon-coverage" aria-hidden="true"></span>Coverage</button>
+          <button type="button" data-view="sources"><span class="nav-icon icon-sources" aria-hidden="true"></span>Sources</button>
+          <button type="button" data-view="activity"><span class="nav-icon icon-activity" aria-hidden="true"></span>Activity</button>
+          <button type="button" data-view="graph"><span class="nav-icon icon-graph" aria-hidden="true"></span>Graph review</button>
+        </nav>
+        <p class="ops-rail-footer"><strong>Shared deployment</strong><span>Signed-in session</span></p>
+      </div>
+    </aside>
+    <main id="ops-workspace">
+      <header class="ops-header">
+        <div><h1 id="ops-view-title" tabindex="-1">Overview</h1><p class="metadata" id="ops-view-summary">Index health and evidence checks</p></div>
+        <div class="ops-toolbar">
+          <label for="ops-collection">Collection</label>
+          <select id="ops-collection" disabled><option value="">Waiting for status</option></select>
+          <button type="button" id="ops-refresh" class="ops-secondary">Refresh</button>
+        </div>
+      </header>
+      <p id="ops-connection" class="ops-connection" role="status" data-tone="neutral">Connecting to shared deployment</p>
+      <section data-panel="overview" id="ops-overview" aria-labelledby="ops-view-title">
+        <dl class="ops-kpis" id="ops-kpis">
+          <div class="ops-kpi"><dt>Indexed sources</dt><dd>—</dd></div>
+          <div class="ops-kpi"><dt>Searchable passages</dt><dd>—</dd></div>
+          <div class="ops-kpi"><dt>Graph pending</dt><dd>—</dd></div>
+        </dl>
+        <div class="ops-visuals">
+          <section class="panel ops-volume-panel" aria-labelledby="ops-volume-title">
+            <header class="ops-panel-head"><h2 id="ops-volume-title">Corpus footprint</h2><span class="ops-chart-meta">Visible collections</span></header>
+            <div id="ops-volume"></div>
+          </section>
+          <section class="panel ops-pressure-panel" aria-labelledby="ops-enrichment-title">
+            <header class="ops-panel-head"><h2 id="ops-enrichment-title">Enrichment queues</h2><span id="ops-work-scope" class="ops-chart-meta"></span></header>
+            <div id="ops-enrichment"></div>
+          </section>
+        </div>
+        <div class="ops-monitor">
+          <section class="panel ops-watch" aria-labelledby="ops-watchlist-title">
+            <header class="ops-panel-head"><h2 id="ops-watchlist-title">Operator watchlist</h2><span id="ops-watch-count" class="ops-chart-meta"></span></header>
+            <div id="ops-watchlist" class="ops-watchlist" role="group" aria-label="Choose an operator signal"></div>
+          </section>
+          <section id="ops-highlight" class="panel ops-highlight" aria-labelledby="ops-highlight-title"></section>
+        </div>
+        <div class="ops-charts">
+          <section class="panel ops-chart" aria-labelledby="ops-review-title"><header class="ops-panel-head"><h2 id="ops-review-title">Review queues</h2></header><div id="ops-review-summary"></div></section>
+          <section class="panel ops-chart" aria-labelledby="ops-sync-title"><header class="ops-panel-head"><h2 id="ops-sync-title">Shared sync</h2></header><div id="ops-sync"></div></section>
+        </div>
       </section>
-      <section id="detail" class="panel" aria-labelledby="detail-heading" hidden>
-        <h2 id="detail-heading" tabindex="-1">Review source</h2>
-        <div id="primary"></div>
-        <ul id="existing-context" aria-label="Existing context"></ul>
-        <div id="approval" hidden>
-          <h3>Context for approval</h3>
-          <p>Reopen a citation from the same collection and select the words that establish the setting.</p>
-          <form id="context-form" class="filters" autocomplete="off">
-            <label>Context chunk ID <input name="chunk" required pattern="[0-9a-f]{64}" minlength="64" maxlength="64" spellcheck="false"></label>
-            <button>Reopen citation</button>
-          </form>
-          <div id="context-preview" hidden>
-            <p id="context-source" class="metadata"></p>
-            <pre id="context-text" tabindex="0" aria-label="Indexed passage to select"></pre>
-            <div class="actions">
-              <button id="use-selection" type="button">Add selected quote</button>
-              <button id="use-passage" type="button">Add entire passage</button>
+      <section data-panel="coverage" aria-labelledby="ops-view-title" hidden>
+        <div class="panel ops-ledger">
+          <header class="ops-panel-head"><h2>Collection freshness</h2><span class="ops-chart-meta">Last observed state</span></header>
+          <div id="ops-collections"></div>
+        </div>
+        <div id="ops-coverage-detail" class="ops-coverage-detail"></div>
+      </section>
+      <section data-panel="sources" aria-labelledby="ops-view-title" hidden><div id="citation-diagnostics"></div></section>
+      <section data-panel="activity" aria-labelledby="ops-view-title" hidden>
+        <div id="activity-diagnostics"></div>
+        <details class="panel" id="ops-relationship">
+          <summary>Confirm a relationship lookup</summary>
+          <fieldset id="lookup-workspace" disabled>
+            <legend class="sr-only">Relationship lookup</legend>
+            <form id="lookup-form" autocomplete="off">
+              <label>Starting entity <input name="root" required maxlength="160"></label>
+              <label>Original name, if you selected a canonical entity
+                <input name="rootAlias" maxlength="160"></label>
+              <label>Relationship types in order
+                <input name="predicates" required maxlength="292" aria-describedby="lookup-example" spellcheck="false">
+              </label>
+              <p id="lookup-example" class="metadata">For example, depends_on, requires. Use up to three types.</p>
+              <label>Intermediate entity names, if known <textarea name="via" maxlength="321" rows="2"
+                          aria-describedby="lookup-via"></textarea></label>
+              <p id="lookup-via" class="metadata">One per line in traversal order. Leave a line blank for an unnamed position.</p>
+              <label>Setting <input name="scope" maxlength="96"></label>
+              <button>Preview lookup</button>
+            </form>
+            <p id="lookup-status" role="status" aria-live="polite"></p>
+            <div id="lookup-preview" hidden>
+              <p id="lookup-interpretation"></p>
+              <p id="lookup-identity" class="metadata"></p>
+              <button id="lookup-confirm" type="button">Confirm and look up</button>
             </div>
-          </div>
-          <ol id="anchors" aria-label="Context selected for approval"></ol>
-          <form id="decision-form" autocomplete="off">
-            <label>Setting tags, one per line <textarea name="settings" required maxlength="1543" rows="2"></textarea></label>
-            <label class="confirmation"><input type="checkbox" name="confirm" required> I checked the direction and the exact setting evidence.</label>
-            <button id="approve" disabled>Approve scoped relationship</button>
-          </form>
-        </div>
+            <div id="lookup-result" aria-label="Cited result"></div>
+          </fieldset>
+        </details>
       </section>
-    </fieldset>
-    <details class="panel">
-      <summary>Confirm a relationship lookup</summary>
-      <fieldset id="lookup-workspace" disabled>
-        <legend class="sr-only">Relationship lookup</legend>
-        <form id="lookup-form" autocomplete="off">
-          <label>Starting entity <input name="root" required maxlength="160"></label>
-          <label>Original name, if you selected a canonical entity
-            <input name="rootAlias" maxlength="160"></label>
-          <label>Relationship types in order
-            <input name="predicates" required maxlength="292" aria-describedby="lookup-example" spellcheck="false">
-          </label>
-          <p id="lookup-example" class="metadata">For example, depends_on, requires. Use up to three types.</p>
-          <label>Intermediate entity names, if known <textarea name="via" maxlength="321" rows="2"
-                      aria-describedby="lookup-via"></textarea></label>
-          <p id="lookup-via" class="metadata">One per line in traversal order. Leave a line blank for an unnamed position.</p>
-          <label>Setting <input name="scope" maxlength="96"></label>
-          <button>Preview lookup</button>
-        </form>
-        <p id="lookup-status" role="status" aria-live="polite"></p>
-        <div id="lookup-preview" hidden>
-          <p id="lookup-interpretation"></p>
-          <p id="lookup-identity" class="metadata"></p>
-          <button id="lookup-confirm" type="button">Confirm and look up</button>
-        </div>
-        <div id="lookup-result" aria-label="Cited result"></div>
-      </fieldset>
-    </details>
-    <noscript>This review page needs JavaScript to reopen and verify citations.</noscript>
-  </main>
+      <section data-panel="graph" aria-labelledby="ops-view-title" hidden>
+        <div class="panel ops-review-intro"><h2>Review directed links</h2><p class="metadata">Open the supporting citation and check the current revision before approving a relationship.</p></div>
+        <fieldset id="workspace" disabled>
+          <legend class="sr-only">Graph review controls</legend>
+          <form id="queue-form" class="filters" autocomplete="off">
+            <label>Collection <input name="collection" required maxlength="64"></label>
+            <label>Queue
+              <select name="mode">
+                <option value="pending">Pending proposals</option>
+                <option value="scoped">Scoped reviews</option>
+              </select>
+            </label>
+            <button>Load queue</button>
+          </form>
+          <p id="status" role="status" aria-live="polite"></p>
+          <section id="queue" class="panel" aria-labelledby="queue-heading" hidden>
+            <h2 id="queue-heading">Review queue</h2>
+            <ol id="proposals"></ol>
+            <button id="next" type="button" hidden>Next page</button>
+          </section>
+          <section id="detail" class="panel" aria-labelledby="detail-heading" hidden>
+            <h2 id="detail-heading" tabindex="-1">Review source</h2>
+            <div id="primary"></div>
+            <ul id="existing-context" aria-label="Existing context"></ul>
+            <div id="approval" hidden>
+              <h3>Context for approval</h3>
+              <p>Reopen a citation from the same collection and select the words that establish the setting.</p>
+              <form id="context-form" class="filters" autocomplete="off">
+                <label>Context chunk ID <input name="chunk" required pattern="[0-9a-f]{64}" minlength="64" maxlength="64" spellcheck="false"></label>
+                <button>Reopen citation</button>
+              </form>
+              <div id="context-preview" hidden>
+                <p id="context-source" class="metadata"></p>
+                <pre id="context-text" tabindex="0" aria-label="Indexed passage to select"></pre>
+                <div class="actions">
+                  <button id="use-selection" type="button">Add selected quote</button>
+                  <button id="use-passage" type="button">Add entire passage</button>
+                </div>
+              </div>
+              <ol id="anchors" aria-label="Context selected for approval"></ol>
+              <form id="decision-form" autocomplete="off">
+                <label>Setting tags, one per line <textarea name="settings" required maxlength="1543" rows="2"></textarea></label>
+                <label class="confirmation"><input type="checkbox" name="confirm" required> I checked the direction and the exact setting evidence.</label>
+                <button id="approve" disabled>Approve scoped relationship</button>
+              </form>
+            </div>
+          </section>
+        </fieldset>
+      </section>
+      <noscript>JavaScript is required to load shared status and reopen citations.</noscript>
+    </main>
+  </div>
 </body>
 </html>

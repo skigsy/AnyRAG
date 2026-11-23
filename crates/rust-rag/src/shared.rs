@@ -1596,6 +1596,94 @@ impl Service {
         )
     }
 
+    fn operator_status(&self, principal: &Principal) -> ApiResult<Value> {
+        let _read = self.gate.try_read().map_err(|_| WRITER_BUSY)?;
+        let (policy, digest) = self.policy()?;
+        let scope = policy.scope(principal)?;
+        let admin = policy.administrators.contains(&principal.subject);
+        let (maintenance, _, restore_pending) = self.phase()?;
+        if maintenance && !admin {
+            self.ready()?;
+        }
+        let sync = if admin {
+            let job = self.job.lock().map_err(unavailable)?;
+            json!({
+                "status":job["status"],
+                "inventory_reconciled":job["inventory_reconciled"],
+            })
+        } else {
+            Value::Null
+        };
+        let mut collections = Vec::with_capacity(scope.len());
+        if !maintenance {
+            for name in &scope {
+                let grant = &policy.collections[name];
+                let mut db = self.open_collection(name, false).map_err(unavailable)?;
+                let db = db.transaction().map_err(unavailable)?;
+                let index = store::status(&db).map_err(unavailable)?;
+                let review_fingerprint = grant
+                    .graph_publication
+                    .as_ref()
+                    .map(|rules| self.publication_fingerprint(rules))
+                    .transpose()
+                    .map_err(unavailable)?;
+                let lane_status = |work: Option<ConfiguredLane<'_>>| -> ApiResult<Value> {
+                    let Some(work) = work else {
+                        return Ok(Value::Null);
+                    };
+                    let (lane, fingerprint) = work.key_with_review(review_fingerprint.as_deref());
+                    let counts =
+                        enrichment::progress_counts(&db, lane, fingerprint).map_err(unavailable)?;
+                    Ok(json!({
+                        "pending":counts.pending,"ready":counts.ready,"leased":counts.leased,
+                        "deferred":counts.deferred,"quarantined":counts.quarantined,
+                        "next_retry_unix":counts.next_retry_unix,
+                        "provider_paused_until_unix":counts.provider_paused_until_unix,
+                    }))
+                };
+                let [graph, vector] = self.permitted_lanes(grant);
+                let mut graph = lane_status(graph)?;
+                let vector = lane_status(vector)?;
+                // Declared relationships can be current without granting an
+                // extractor access. Check signed publication independently.
+                let publication_current = self.graph != GraphMode::Off
+                    && self
+                        .graph_publication_current(&db, grant)
+                        .map_err(unavailable)?;
+                if !graph.is_null() {
+                    graph["publication_current"] = json!(publication_current);
+                }
+                let review = if policy.graph_reviewer(principal, name).is_ok() {
+                    match (review_fingerprint.as_deref(), publication_current) {
+                        (Some(fingerprint), true) => operator_review_status(&db, fingerprint)?,
+                        (Some(_), _) => json!({"status":"reconciling"}),
+                        (None, _) => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                };
+                collections.push(json!({
+                    "name":name,"sources":index["sources"],"passages":index["chunks"],
+                    "graph":graph,"vector":vector,"review":review,
+                }));
+            }
+        }
+        // The policy input can change during the read. Never release a snapshot
+        // with old collection visibility or old review/admin privileges.
+        let (current_policy, current_digest) = self.policy()?;
+        current_policy.scope(principal)?;
+        if current_digest != digest {
+            return Err(ACCESS_CHANGED);
+        }
+        Ok(json!({
+            "schema_version":1,"policy_version":policy.version,
+            "observed_at_unix":auth::epoch().map_err(unavailable)?,
+            "maintenance":admin.then_some(maintenance),
+            "restore_pending":admin.then_some(restore_pending),
+            "sync":sync,"collections":collections,
+        }))
+    }
+
     fn graph_review_list(
         &self,
         principal: &Principal,
@@ -2283,6 +2371,29 @@ impl Service {
     }
 }
 
+fn operator_review_status(db: &Connection, fingerprint: &str) -> ApiResult<Value> {
+    // Reading the available queue pages bounds the watchlist work. The more
+    // flags distinguish a page count from a whole-collection total.
+    const SAMPLE: usize = 12;
+    let pending =
+        graph::shared_review_queue(db, fingerprint, None, SAMPLE).map_err(graph_review_error)?;
+    let scoped =
+        relationship::review_scoped_links(db, fingerprint, SAMPLE, None).map_err(unavailable)?;
+    let pending_rows = pending["proposals"]
+        .as_array()
+        .ok_or_else(|| unavailable("missing pending proposals"))?;
+    let scoped_rows = scoped["proposals"]
+        .as_array()
+        .ok_or_else(|| unavailable("missing scoped proposals"))?;
+    Ok(json!({
+        "status":"current",
+        "pending_proposals":pending_rows.len(),
+        "pending_more":pending["has_more"],
+        "scoped_rechecks":scoped_rows.iter().filter(|row| row["reason"] == "stale_scoped_context").count(),
+        "scoped_more":scoped["has_more"],
+    }))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Query {
@@ -2414,6 +2525,7 @@ fn route(service: &Arc<Service>, request: &mut tiny_http::Request) -> ApiResult<
             service.graph_review_fact(&principal, request_json(request)?)?
         }
         (&Get, "/v1/admin/status") => service.admin_status(&principal)?,
+        (&Get, "/v1/operator/status") => service.operator_status(&principal)?,
         (&Post, "/v1/admin/sync") => return Ok((202, service.start_sync(principal)?)),
         (&Post, "/v1/admin/retry-enrichment") => {
             service.retry_enrichment(&principal, request_json(request)?)?

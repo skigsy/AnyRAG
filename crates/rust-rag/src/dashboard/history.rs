@@ -88,6 +88,10 @@ pub(crate) struct QuerySummary {
     pub(crate) first_observed_unix_seconds: i64,
     pub(crate) last_observed_unix_seconds: i64,
     pub(crate) median_duration_micros: i64,
+    #[serde(skip)]
+    pub(super) p95_duration_micros: i64,
+    #[serde(skip)]
+    pub(super) recent_durations_micros: Vec<i64>,
     pub(crate) evidence: i64,
     pub(crate) weak_match: i64,
     pub(crate) abstained: i64,
@@ -641,6 +645,11 @@ pub(crate) fn control(requested: &Path, action: Action) -> Result<Summary> {
 
 fn summarize_queries(mut queries: Vec<QueryObservation>) -> Option<QuerySummary> {
     let latest = queries.pop()?;
+    let recent_durations_micros = queries[queries.len().saturating_sub(23)..]
+        .iter()
+        .chain(std::iter::once(&latest))
+        .map(|query| query.duration_micros)
+        .collect();
     let mut first = latest.observed_at_unix_seconds;
     let mut last = first;
     let mut timings = Vec::with_capacity(queries.len() + 1);
@@ -681,6 +690,8 @@ fn summarize_queries(mut queries: Vec<QueryObservation>) -> Option<QuerySummary>
         first_observed_unix_seconds: first,
         last_observed_unix_seconds: last,
         median_duration_micros: median,
+        p95_duration_micros: timings[(timings.len() * 95).div_ceil(100) - 1],
+        recent_durations_micros,
         evidence,
         weak_match,
         abstained,

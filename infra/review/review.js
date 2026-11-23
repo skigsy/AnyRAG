@@ -1,3 +1,6 @@
+import { mountDiagnostics } from "./diagnostics.js";
+import { mountOperations, routeDiagram } from "./operations.js";
+
 const byId = id => document.getElementById(id);
 const workspace = byId("workspace");
 const queueForm = byId("queue-form");
@@ -21,6 +24,8 @@ let selected;
 let context;
 let anchors = [];
 let retry;
+let operations;
+let viewGeneration = 0;
 
 function announce(text, error = false) {
   status.textContent = text;
@@ -46,6 +51,7 @@ function required(condition, message) {
 }
 
 async function request(path, body) {
+  const generation = viewGeneration;
   const response = await fetch(path, {
     method: body === undefined ? "GET" : "POST",
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -61,10 +67,16 @@ async function request(path, body) {
     signal: AbortSignal.timeout(10000),
   });
   const payload = await response.json().catch(() => null);
+  if (generation !== viewGeneration) {
+    throw Object.assign(new Error("The dashboard view changed. Reopen the current evidence."), {
+      status: 409, code: "GRAPH_REVIEW_STALE",
+    });
+  }
   if (response.ok && payload) return payload;
   const error = new Error("Request failed.");
   error.status = response.status;
   error.code = payload?.error?.code;
+  if (error.status === 401 || error.code === "ACCESS_CHANGED") operations?.forget();
   throw error;
 }
 
@@ -171,6 +183,8 @@ async function inspect(row) {
            characters.slice(row.start - evidence.start, row.end - evidence.start).join("") === row.quote,
            "The primary quote no longer matches the reopened revision. Reload the queue.");
   selected = row;
+  const route = routeDiagram([row]);
+  if (route) byId("primary").append(route);
   byId("primary").append(...facts(row));
   for (const entry of row.context || []) {
     const item = node("li");
@@ -372,6 +386,8 @@ byId("lookup-confirm").addEventListener("click", () => lookupTask(async () => {
   const result = await request("/v1/relationship/guided", payload);
   lookupStatus.textContent = ({value: result.value, explicit_negative: "The source explicitly denies this relationship.",
     documented_absence: "The cited record documents the absence of a value."})[result.status] || "No supported result.";
+  const route = routeDiagram(result.steps);
+  if (route) lookupResult.append(route);
   for (const step of result.steps ?? []) {
     lookupResult.append(node("blockquote", step.quote));
     addLookupCitation("Reopen relationship citation", step.citation?.chunk_id);
@@ -384,10 +400,35 @@ byId("lookup-confirm").addEventListener("click", () => lookupTask(async () => {
   for (const binding of result.name_bindings ?? []) addLookupCitation("Reopen name binding", binding.chunk_id);
 }));
 lookupWorkspace.disabled = workspace.disabled;
+
+function clearReviewedEvidence() {
+  viewGeneration++;
+  clearQueue();
+  clearLookup();
+  queueForm.reset();
+  lookupForm.reset();
+  lookupStatus.textContent = "";
+  announce("");
+}
+
+function openReview(collection, scoped) {
+  queueForm.elements.collection.value = collection;
+  queueForm.elements.mode.value = scoped ? "scoped" : "pending";
+  return task(() => loadQueue(collection, scoped));
+}
+
+const diagnostics = mountDiagnostics(request, {
+  onTrace: result => operations?.record("trace", result),
+  onCitation: result => operations?.record("access", result),
+  openSources: () => operations?.showView("sources"),
+  onAccessChanged: () => operations?.forget(),
+});
+operations = mountOperations({ request, openReview, clearReviewedEvidence, diagnostics });
+
 window.addEventListener("pageshow", event => {
   if (event.persisted) {
-    clearQueue();
-    clearLookup();
+    operations.forget();
+    operations.refresh();
     announce("Load the queue to check current access.");
   }
 });

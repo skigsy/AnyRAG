@@ -78,9 +78,11 @@ Check the linked setup for package and build options. Guided lookup runs after a
 
 ## Live operator dashboard
 
-[![The live AnyRAG dashboard showing indexed sources, graph coverage, and recent activity.](docs/assets/dashboard/overview.png)](crates/rust-rag/README.md#local-index-dashboard)
+[![AnyRAG shared operator dashboard showing corpus bars, graph and vector queue rings, and the operator watchlist.](docs/assets/dashboard/overview.png)](infra/review/README.md)
 
-See what’s indexed, what still needs enrichment, and what changed on the last sync. Activity history is opt-in. [Open the dashboard](crates/rust-rag/README.md#local-index-dashboard)
+See what’s indexed and where work is waiting. Follow the watchlist into evidence traces, graph review, and checks that reopen citations under the signed-in user's access.
+
+[Set up the shared console](infra/review/README.md) · [Open a personal dashboard](crates/rust-rag/README.md#local-index-dashboard)
 
 ## Quickstart: Rust personal search
 

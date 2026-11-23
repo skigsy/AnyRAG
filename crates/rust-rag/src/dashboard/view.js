@@ -25,6 +25,76 @@ let timer;
 let inFlight = false;
 let lastRead;
 let selectedProposal;
+const drawnCharts = new WeakSet();
+
+function drawCharts() {
+  const styles = getComputedStyle(workspace);
+  const ink = (name) => styles.getPropertyValue("--" + name).trim();
+  for (const canvas of content.querySelectorAll("canvas[data-timing-samples], canvas[data-outcome-counts]")) {
+    if (drawnCharts.has(canvas)) continue;
+    const context = canvas.getContext("2d");
+    if (!context) continue;
+    if (canvas.dataset.timingSamples) {
+      drawTimingChart(context, canvas, ink("gold"), ink("line"));
+    } else {
+      drawOutcomeRing(context, canvas, ["green", "gold", "abstention", "red"].map(ink), ink("line"));
+    }
+    drawnCharts.add(canvas);
+  }
+}
+
+function drawTimingChart(context, { width, height, dataset }, accent, grid) {
+  const samples = dataset.timingSamples.split(",").map(Number);
+  const max = Math.max(1, ...samples);
+  const baseline = height - 2;
+  const plotHeight = height - 12;
+  context.strokeStyle = grid;
+  context.lineWidth = 2;
+  context.beginPath();
+  for (let tick = 0; tick <= 4; tick++) {
+    const y = baseline - tick * plotHeight / 4;
+    context.moveTo(0, y);
+    context.lineTo(width, y);
+  }
+  context.stroke();
+  const stride = width / Math.max(12, samples.length);
+  const barWidth = stride * 0.58;
+  const right = width - (stride + barWidth) / 2;
+  const fill = context.createLinearGradient(0, height, 0, 0);
+  fill.addColorStop(0, "#564937");
+  fill.addColorStop(1, accent);
+  samples.forEach((sample, index) => {
+    const bar = Math.max(2, sample / max * plotHeight);
+    const x = right - (samples.length - 1 - index) * stride;
+    context.fillStyle = index === samples.length - 1 ? accent : fill;
+    context.fillRect(x, baseline - bar, barWidth, bar);
+  });
+}
+
+function drawOutcomeRing(context, { width, height, dataset }, colors, track) {
+  const counts = dataset.outcomeCounts.split(",").map(Number);
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  const x = width / 2;
+  const y = height / 2;
+  const radius = Math.min(x, y) - 17;
+  const turn = Math.PI * 2;
+  context.lineWidth = 22;
+  context.strokeStyle = track;
+  context.beginPath();
+  context.arc(x, y, radius, 0, turn);
+  context.stroke();
+  let start = -Math.PI / 2;
+  counts.forEach((count, index) => {
+    if (count === 0) return;
+    const end = start + turn * count / total;
+    const gap = total === count ? 0 : Math.min(0.055, (end - start) / 4);
+    context.strokeStyle = colors[index];
+    context.beginPath();
+    context.arc(x, y, radius, start + gap, end - gap);
+    context.stroke();
+    start = end;
+  });
+}
 
 function showProposal(root, requested) {
   const buttons = [...root.querySelectorAll("[data-review-item]")];
@@ -164,6 +234,7 @@ async function refresh() {
       const previousSync = lastRead?.dataset.syncAt;
       const previousIngest = lastRead?.dataset.ingest;
       replaceCards(html);
+      drawCharts();
       sources.hidden = false;
       ingestReport.hidden = false;
       lastRead = document.getElementById("snapshot-observation");
@@ -235,7 +306,7 @@ content.addEventListener("click", (event) => {
     showSources({ id: source });
     return;
   }
-  const link = event.target.closest(".attention-list a, a[data-live-action]");
+  const link = event.target.closest(".attention-list a, a[data-live-action], a[data-chart-link]");
   if (!link || event.ctrlKey || event.shiftKey || event.metaKey || event.altKey) return;
   updateNav(link.hash);
   const target = document.getElementById(link.hash.slice(1));

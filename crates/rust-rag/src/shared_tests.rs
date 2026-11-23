@@ -269,6 +269,41 @@ fn await_sync(address: &str) -> Value {
 }
 
 #[test]
+fn operator_watchlist_uses_current_signed_collection_grants() {
+    let fixture = Fixture::new(None, false);
+    let service = fixture.open();
+    with_http(&service, |address| {
+        let route = "/v1/operator/status";
+        assert_eq!(api(address, None, route, None).0, 401);
+        assert_eq!(sync_http(address)["status"], "complete");
+
+        let (status, reader) = api(address, Some(ALICE.as_str()), route, None);
+        assert_eq!(status, 200, "{reader}");
+        assert_eq!(reader["collections"].as_array().unwrap().len(), 1);
+        assert_eq!(reader["collections"][0]["name"], "open");
+        assert_eq!(reader["collections"][0]["sources"], 2);
+        assert_eq!(reader["collections"][0]["passages"], 2);
+        assert_eq!(reader["collections"][0]["vector"]["pending"], 0);
+        assert!(reader["collections"][0]["review"].is_null());
+        assert!(reader["sync"].is_null());
+        assert!(reader["maintenance"].is_null());
+        assert!(!reader.to_string().contains(PRIVATE_CANARY));
+        assert!(!reader.to_string().contains("restricted"));
+
+        let (status, admin) = api(address, Some(ADMIN.as_str()), route, None);
+        assert_eq!(status, 200, "{admin}");
+        assert_eq!(admin["sync"]["inventory_reconciled"], true);
+        assert_eq!(admin["collections"], json!([]));
+
+        fixture.policy(2, false, false, false);
+        let (status, revoked) = api(address, Some(ALICE.as_str()), route, None);
+        assert_eq!(status, 200, "{revoked}");
+        assert_eq!(revoked["policy_version"], 2);
+        assert_eq!(revoked["collections"], json!([]));
+    });
+}
+
+#[test]
 fn low_limit_prefers_strong_authorized_evidence() {
     let fixture = Fixture::new(None, false);
     let question = "Lyra beacon capsule coolant schedule";

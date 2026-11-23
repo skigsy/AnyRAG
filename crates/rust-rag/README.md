@@ -95,7 +95,7 @@ rust-rag --state-dir /private/index health --html /private/health.html
 
 Pair the browser with the access code shown in your terminal. Use `dashboard --no-open` to open the displayed address yourself. The dashboard uses IPv4 loopback and refreshes while its tab is visible. It shows the time of the last successful refresh when the index cannot be read. Press Ctrl+C in the dashboard terminal to stop the session.
 
-Use **Overview** for index health and **Coverage** to see what keyword, vector, and graph retrieval have indexed. **Activity** shows recent opt-in history. The last full sync reflects a successful `ingest --sync`. The latest ingest can complete without syncing or retain prior passages after a file fails. Open **Review affected files** to load a local `ingest --review --json` report.
+Use **Overview** for index health, query speed and outcomes, and file changes from the latest ingest. Query charts use opt-in local history. **Coverage** shows what keyword, vector, and graph retrieval have indexed. **Activity** shows recent opt-in history. The last full sync reflects a successful `ingest --sync`. The latest ingest can complete without syncing or retain prior passages after a file fails. Open **Review affected files** to load a local `ingest --review --json` report.
 
 In **Sources**, browse the index or paste a source ID from query output to see passage previews, offsets, revision and chunk IDs. Use `citation <chunk-id> --revision <revision>` for the complete indexed passage.
 

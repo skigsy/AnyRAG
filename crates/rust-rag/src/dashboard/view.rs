@@ -221,9 +221,10 @@ pub(super) fn cards(snapshot: &Snapshot, review: Option<&anyhow::Result<ReviewQu
   <dl class="sync"><dt class="label">Last full sync</dt><dd>{sync}</dd><dd class="muted">{sync_detail}</dd></dl>
 </div>
 </section>
-<div class="work" id="index-work">
 "#,
         );
+        overview_charts(&mut html, &snapshot.history);
+        html.push_str(r#"<div class="work" id="index-work">"#);
         next(&mut html, &attention);
         let _ = write!(
             html,
@@ -843,6 +844,114 @@ fn activity(html: &mut String, history: &history::Summary) {
     html.push_str(r#"</div><details class="activity-policy" id="activity-policy"><summary data-focus-key="activity-policy">History retention</summary><p>Up to seven days or 2,000 CLI observations.</p></details></section>"#);
 }
 
+fn overview_charts(html: &mut String, history: &history::Summary) {
+    let window = if history.collection_enabled == Some(false) {
+        "Retained history"
+    } else {
+        "Recorded CLI activity"
+    };
+    let _ = write!(
+        html,
+        r#"<div class="overview-charts" id="overview-analytics" aria-label="Operational charts">
+<section class="panel chart chart-latency">
+  <header class="panel-head"><h2>Query speed</h2><span class="section-meta">{window}</span></header>"#,
+    );
+    if let Some(queries) = &history.recent_queries {
+        let samples = &queries.recent_durations_micros;
+        let sequence = samples
+            .iter()
+            .map(i64::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let median = milliseconds(queries.median_duration_micros);
+        let p95 = milliseconds(queries.p95_duration_micros);
+        let max = samples.iter().copied().max().unwrap_or(0);
+        let max_label = milliseconds(max);
+        let latest = milliseconds(queries.latest.duration_micros);
+        let points = samples.len();
+        let _ = write!(
+            html,
+            r##"<dl class="chart-kpis">
+  <div><dt>Median</dt><dd>{median}</dd></div><div><dt>p95</dt><dd>{p95}</dd></div><div><dt>Latest</dt><dd>{latest}</dd></div>
+</dl>
+<div class="chart-plot" aria-hidden="true">
+  <div class="plot-labels"><span>{max_label}</span><span>0 ms</span></div>
+  <canvas width="880" height="260" data-timing-samples="{sequence}"></canvas>
+</div>
+<footer class="chart-foot"><span>Last {points} queries · engine time</span><a data-chart-link data-focus-key="chart-query-detail" href="#query-details">Timing details</a></footer>"##,
+        );
+    } else {
+        html.push_str(r#"<p class="chart-empty">No recorded query timings.</p>"#);
+    }
+    html.push_str(r#"</section><section class="panel chart chart-outcomes"><header class="panel-head"><h2>Query outcomes</h2></header>"#);
+    if let Some(queries) = &history.recent_queries {
+        let count = queries.count;
+        let _ = write!(
+            html,
+            r#"<div class="outcome-chart"><div class="outcome-ring">
+  <canvas width="240" height="240" data-outcome-counts="{},{},{},{}" aria-hidden="true"></canvas>
+  <span><strong>{count}</strong><small>queries</small></span>
+</div><dl class="chart-legend">"#,
+            queries.evidence, queries.weak_match, queries.abstained, queries.errors,
+        );
+        for (label, count, class) in query_categories(queries) {
+            let _ = write!(
+                html,
+                r#"<div class="{class}"><dt>{label}</dt><dd>{count}</dd></div>"#,
+            );
+        }
+        html.push_str(r##"</dl></div><footer class="chart-foot"><a data-chart-link data-focus-key="chart-outcome-detail" href="#recorded-queries">Query activity</a></footer>"##);
+    } else {
+        html.push_str(r#"<p class="chart-empty">No recorded query outcomes.</p>"#);
+    }
+    html.push_str(r#"</section><section class="panel chart chart-ingest"><header class="panel-head"><h2>Latest ingest</h2></header>"#);
+    if let Some(ingest) = &history.latest_ingest {
+        if let Some(counts) = &ingest.counts {
+            let changes = [
+                ("Updated", counts.updated_sources, "evidence"),
+                ("Removed", counts.removed_sources, "abstained"),
+                ("Failed", counts.failed_sources, "error"),
+                (
+                    "Prior revisions kept",
+                    counts.retained_previous_sources,
+                    "weak",
+                ),
+            ];
+            let scale = changes
+                .iter()
+                .map(|(_, count, _)| *count)
+                .max()
+                .unwrap_or(0)
+                .max(1);
+            html.push_str(r#"<dl class="change-bars">"#);
+            for (label, count, class) in changes {
+                let _ = write!(
+                    html,
+                    r#"<div class="{class}"><dt>{label}</dt><dd>{count}</dd><meter min="0" max="{scale}" value="{count}" aria-hidden="true"></meter></div>"#,
+                );
+            }
+            html.push_str("</dl>");
+        } else {
+            html.push_str(
+                r#"<p class="chart-empty">The latest ingest has no recorded file counts.</p>"#,
+            );
+        }
+        html.push_str(r##"<footer class="chart-foot"><a data-chart-link data-focus-key="chart-ingest-detail" href="#ingest-details">Ingest details</a></footer>"##);
+    } else {
+        html.push_str(r#"<p class="chart-empty">No recorded ingests.</p>"#);
+    }
+    html.push_str("</section></div>");
+}
+
+fn query_categories(queries: &history::QuerySummary) -> [(&'static str, i64, &'static str); 4] {
+    [
+        ("Evidence", queries.evidence, "evidence"),
+        ("Weak match", queries.weak_match, "weak"),
+        ("Abstained", queries.abstained, "abstained"),
+        ("Error", queries.errors, "error"),
+    ]
+}
+
 fn queries(html: &mut String, queries: Option<&history::QuerySummary>) {
     html.push_str(
         "<section class=\"activity-block\" id=\"recorded-queries\"><h3>Query outcomes</h3>",
@@ -850,12 +959,7 @@ fn queries(html: &mut String, queries: Option<&history::QuerySummary>) {
     if let Some(queries) = queries {
         let count = queries.count;
         let median = milliseconds(queries.median_duration_micros);
-        let categories = [
-            ("Evidence", queries.evidence, "evidence"),
-            ("Weak match", queries.weak_match, "weak"),
-            ("Abstained", queries.abstained, "abstained"),
-            ("Error", queries.errors, "error"),
-        ];
+        let categories = query_categories(queries);
         let _ = write!(
             html,
             r#"<p class="activity-lede"><strong>{count}</strong> recorded</p><div class="outcome-cluster"><div class="outcome-strip" aria-hidden="true">"#
@@ -1166,6 +1270,8 @@ mod tests {
             first_observed_unix_seconds: 1,
             last_observed_unix_seconds: 1,
             median_duration_micros: 11,
+            p95_duration_micros: 11,
+            recent_durations_micros: vec![11],
             evidence: 1,
             weak_match: 0,
             abstained: 0,

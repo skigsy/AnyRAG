@@ -362,3 +362,57 @@ summary::marker { color: var(--muted); }
 .source-pages button { padding: .36rem .65rem; }
 .source-heading { overflow-wrap: anywhere; }
 .source-meta { margin: .55rem 0; color: var(--muted); overflow-wrap: anywhere; }
+
+/* Keep exact values in HTML; canvas adds the live overview plots. */
+.overview-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1.05fr) minmax(0, .85fr);
+  gap: .9rem;
+  margin: 0 0 .9rem;
+}
+main[data-view]:not([data-view="overview"]) #overview-analytics { display: none; }
+.chart { display: flex; flex-direction: column; min-width: 0; }
+.chart .panel-head { justify-content: space-between; gap: .28rem .6rem; padding-block: .85rem .55rem; }
+.chart .panel-head h2 { font-size: 1.35rem; }
+.chart .section-meta { font-size: .76rem; }
+.chart-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .45rem; margin: .1rem 0 .76rem; }
+.chart-kpis div { min-width: 0; border-left: 1px solid var(--line); padding-left: .55rem; }
+.chart-kpis dt, .plot-labels, .chart-foot { color: var(--muted); font-size: .78rem; }
+.chart-kpis dd { margin: .1rem 0 0; font: 600 clamp(.9rem, 1.35vw, 1.1rem)/1.3 var(--mono); overflow-wrap: anywhere; }
+.chart-plot { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .45rem; margin-bottom: .45rem; }
+.plot-labels { display: flex; flex-direction: column; justify-content: space-between; text-align: right; font-family: var(--mono); }
+.chart-plot canvas { display: block; width: 100%; height: 5.85rem; transform-origin: bottom; animation: plot-in .46s cubic-bezier(.2,.68,.3,1) both; }
+.chart-foot { display: flex; align-items: center; flex-wrap: wrap; gap: .32rem .45rem; justify-content: space-between; margin-top: auto; border-top: 1px solid var(--line); padding-block: .52rem .65rem; }
+.chart-foot a { color: var(--gold); text-underline-offset: .2em; }
+.chart-foot a:hover, .chart-foot a:focus-visible { text-decoration: underline; }
+.chart-empty { border-top: 1px solid var(--line); color: var(--muted); padding: .85rem 0; font-size: var(--meta); }
+.outcome-chart { display: grid; grid-template-columns: minmax(0, 1fr) minmax(5rem, 1fr); align-items: center; gap: .65rem; margin: auto 0; padding-block: .2rem .55rem; }
+.outcome-ring { position: relative; display: grid; justify-items: center; width: min(100%, 8.9rem); aspect-ratio: 1; }
+.outcome-ring canvas { position: absolute; inset: 0; width: 100%; height: 100%; animation: ring-in .52s cubic-bezier(.2,.68,.3,1) both; }
+.outcome-ring > span { display: flex; flex-direction: column; justify-content: center; align-items: center; line-height: 1.25; }
+.outcome-ring strong { font: 600 clamp(.8rem, 2.05vw, 1.8rem)/1 var(--mono); }
+.outcome-ring small { color: var(--muted); font-size: .76rem; }
+.chart-legend, .change-bars { display: grid; gap: .38rem; margin: 0; font-size: .78rem; }
+.chart-legend > div, .change-bars > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: .35rem; min-width: 0; }
+.chart-legend dt, .change-bars dt { min-width: 0; color: var(--muted); }
+.chart-legend dt::before { content: ""; display: inline-block; width: .4rem; height: .4rem; margin-right: .28rem; background: var(--outcome); border-radius: 2px; vertical-align: .12em; }
+.chart-legend dd, .change-bars dd { margin: 0; font-family: var(--mono); color: var(--text); }
+.change-bars { gap: .35rem; margin: auto 0; padding: .12rem 0 .72rem; }
+.change-bars meter { grid-area: 2 / 1 / 3 / 3; height: .32rem; --meter-color: var(--outcome); }
+main:not([data-view]) .chart-plot, main:not([data-view]) .outcome-ring canvas { display: none; }
+@keyframes plot-in { from { transform: scaleY(.72); opacity: .25; } }
+@keyframes ring-in { from { transform: scale(.9) rotate(-8deg); opacity: .18; } }
+@media (max-width: 1220px) {
+  .overview-charts { grid-template-columns: minmax(0, 1.23fr) minmax(0, 1fr); }
+  .chart-ingest { grid-column: 1 / -1; }
+  .change-bars { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
+}
+@media (max-width: 850px) {
+  .overview-charts { grid-template-columns: minmax(0, 1fr); }
+  .chart-ingest { grid-column: auto; }
+  .change-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .outcome-chart { grid-template-columns: minmax(0, 7.7rem) minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chart-plot canvas, .outcome-ring canvas { animation: none; }
+}

@@ -1,13 +1,15 @@
-# Shared Graph review
+# Shared operator console and Graph review
 
-This page uses the shared API to inspect proposals, reopen exact indexed citations and manually approve or renew a scoped review. It requires an AnyRAG build with signed scoped review and a private gateway. [Shared Graph review](../private-vm.md#review-shared-graph-relationships) · [Scoped decision contract](../private-vm.md#look-up-a-reviewed-relationship)
+The shared console shows collection coverage and graph work behind the same per-user gateway as signed Graph review. Operators can run an evidence trace, check current citation access, and open proposals with their source quotes. [Shared Graph review](../private-vm.md#review-shared-graph-relationships) · [Scoped decision contract](../private-vm.md#look-up-a-reviewed-relationship)
 
 ## Private gateway
 
-Serve `index.html`, `review.css` and `review.js` at `/review/` on the private HTTPS gateway. Serve JavaScript as `text/javascript`. The same browser origin provides the following routes to the private AnyRAG upstream.
+Serve `index.html`, `review.css`, `review.js`, `operations.js` and `diagnostics.js` at `/review/` on the private HTTPS gateway. Serve JavaScript as `text/javascript`. The same browser origin provides these routes to the private AnyRAG upstream. Add the operator status and query routes to the gateway allowlist to enable coverage and evidence tracing.
 
 | Method | Path |
 | --- | --- |
+| GET | `/v1/operator/status` |
+| POST | `/v1/query` |
 | POST | `/v1/graph-review/list` |
 | GET | `/v1/evidence/<64-character hex chunk ID>` |
 | POST | `/v1/graph-review/decide` |
@@ -19,6 +21,12 @@ Serve `index.html`, `review.css` and `review.js` at `/review/` on the private HT
 - Send `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff` and a Content Security Policy with `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`. Disable response caching and avoid logging JWTs, source text, decision bodies or cookies.
 
 Before enabling the page, verify that a signed reviewer can list and decide in a granted collection, a read-only identity cannot list or decide, a revoked session cannot reopen protected evidence, and a cross-origin POST is rejected at the gateway. The page's checks supplement the gateway and AnyRAG authorization.
+
+## Inspect shared operations
+
+Select a collection on **Overview** and open a watchlist item. **Coverage** shows current indexing and enrichment state. The observation time is when AnyRAG read the status. Review counts marked with a plus sign are lower bounds from a bounded queue. Deployment maintenance and sync details require the existing admin grant.
+
+Run an explicit trace in **Activity** to see retrieved evidence, directed paths, and any context omissions reported by the service. **Sources** checks whether a saved citation reopens for the signed-in user. A non-reopening citation can be unavailable, retired, or out of scope. Query text, excerpts, and citation check results stay in the page session. Answer-model use is opt-in per trace and follows current deployment grants.
 
 ## Review a relationship
 
