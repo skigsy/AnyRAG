@@ -14,7 +14,7 @@ When someone points an agent at Any RAG and says “install”, “set this up�
 4. Treat the consuming harness as a possible processing service. It may send stdout, source passages, paths, metadata and file reads to its model provider. Strict local data needs a local consumer. Model API choices introduce separate egress.
 5. Reuse the native source, evidence, ranking and graph contracts, and the [deployment recipes](infra/README.md). Describe the proposed components and what needs integrating. For authorized setup, use the manual commands in [setup](docs/setup.md). Verify a first slice on synthetic inputs and explain undo, storage, data movement, costs, and privileges as applicable.
 6. Collect credentials through supported login or an OS or cloud secret store. Never put credentials in chat, code, plans, or logs. Keep user data and state outside this checkout and sync folders.
-7. Offer recommended and custom setup. Do not require an evaluation, approval, or override flag merely because a combination is unevaluated. Keep verified, unqualified, and custom labels distinct. Do not silently substitute defaults for requested choices.
+7. Offer recommended and custom setup. Do not require an evaluation, approval, or override flag merely because a combination is unevaluated. If the user wants to measure local retrieval, use [their own exact-evidence cases](docs/setup.md#check-retrieval-on-your-own-questions). Keep verified, unqualified, and custom labels distinct. Do not silently substitute defaults for requested choices.
 
 ### Current commands
 

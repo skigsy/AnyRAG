@@ -64,17 +64,19 @@ AnyRAG includes the code, deployment recipes, and tests for the work that starts
 
 You choose the files, the model if you need one, who gets access, and where it runs. [Explore the architecture](docs/architecture.md)
 
-## What's new
+## What's new in v1.3.0
 
 | Feature | What you can do |
 | --- | --- |
-| [Confirm a guided relationship](infra/private-vm.md#confirm-a-relationship-interpretation) | Preview a directed chain in its setting, confirm the interpretation, and reopen its current citations. The Linux image includes the signed API and optional shared MCP. |
-| [Reopen citations in MCP](docs/setup.md#search-a-personal-index-from-an-mcp-client) | Ask your assistant to reopen a saved citation and verify the exact passage. |
-| [Preview indexed sources](docs/setup.md#inspect-what-the-dashboard-indexed) | Open a document's indexed passages in the dashboard and review files that were skipped or failed. |
-| [Schedule folder sync](infra/README.md#keep-a-personal-folder-current-on-linux) | Keep a personal index current with a Linux timer. |
-| [Search Excel by cell](docs/setup.md#search-an-excel-workbook) | Index visible worksheets and cite the exact cell behind a result. |
+| [List the sources you can access](docs/setup.md#list-the-sources-a-reader-can-access) | Page through your exact authorized source inventory from the signed API or MCP. |
+| [Sync a company Git mirror](infra/private-vm.md#index-a-company-git-repository) | Index a selected ref at an exact commit and keep citations current through edits and deletions under collection-level grants. Requires a source build and native Git. |
+| [Follow Obsidian note links](docs/setup.md#follow-links-in-an-obsidian-vault) | Follow explicit links and reopen their exact source spans without a model. |
+| [Cite Word and Excel tables](docs/setup.md#search-an-excel-workbook) | Retrieve a supported table's header, row label, and value with separate citations. Available in the Linux image or a source build. |
+| [Search through signed MCP](crates/rust-rag/README.md#guided-relationships-on-a-shared-service) | Give an agent ranked evidence from the reader's current collections. Open an exact citation with the same reader identity. |
+| [Search in the shared dashboard](infra/review/README.md#search-authorized-documents) | Find passages and verify their sources from the browser. Use the same sign-in as Graph review. |
+| [Check retrieval on your questions](docs/setup.md#check-retrieval-on-your-own-questions) | Check whether your index finds every expected passage. Compare keyword and Graph RAG on the same cases without an answer model. |
 
-Check the linked setup for package and build options. Guided lookup runs after an explicit confirmation.
+See the linked setup for package and build options. Guided lookup runs after an explicit confirmation.
 
 ## Live operator dashboard
 
@@ -86,7 +88,7 @@ See what’s indexed and where work is waiting. Follow the watchlist into eviden
 
 ## Quickstart: Rust personal search
 
-[Windows ZIP](docs/setup.md#install-the-windows-zip) · [Linux image](docs/setup.md#try-personal-search-in-the-linux-image) · [Build from source](docs/setup.md#install-from-this-repository) · [v1.2.0 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.2.0)
+[Windows ZIP](docs/setup.md#install-the-windows-zip) · [Linux image](docs/setup.md#try-personal-search-in-the-linux-image) · [Build from source](docs/setup.md#install-from-this-repository) · [v1.3.0 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.3.0)
 
 Start with local Markdown and text search. The default build needs no model or database service.
 

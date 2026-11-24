@@ -1,4 +1,10 @@
-use super::{Call, Citation, INVALID_PARAMS, params, tool_result};
+use super::{
+    Call, Citation, INVALID_PARAMS, MAX_QUESTION, MAX_RESULTS, default_limit, params, tool_result,
+};
+use crate::shared::inventory::{
+    API_PATH as INVENTORY, CURSOR_LENGTH, DEFAULT_PAGE_ENTRIES, MAX_PAGE_ENTRIES,
+    Request as InventoryRequest,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json, value::RawValue};
 #[cfg(unix)]
@@ -10,8 +16,10 @@ use ureq::{
 };
 
 const GUIDED: &str = "/v1/relationship/guided";
+const QUERY: &str = "/v1/query";
 const MAX_TOKEN: u64 = 16 * 1024;
 const MAX_BODY: u64 = 256 * 1024;
+const MAX_REVISION_BYTES: usize = 1024;
 const REQUEST_FAILED: &str = "Could not complete the request to the configured shared service.";
 const EVIDENCE_UNAVAILABLE: &str = "This citation is unavailable at the requested revision.";
 
@@ -46,17 +54,17 @@ impl Client {
         Uri::from_parts(parts).map_err(|_| REQUEST_FAILED)
     }
 
-    fn guided(&self, request: &Guided<'_>) -> Result<Value, &'static str> {
+    fn post(&self, path: &str, request: &impl Serialize) -> Result<Value, &'static str> {
         let bytes = serde_json::to_vec(request).map_err(|_| REQUEST_FAILED)?;
         let response = self
             .agent
-            .post(self.uri(GUIDED)?)
+            .post(self.uri(path)?)
             .header("Authorization", self.authorization.clone())
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
             .send(bytes.as_slice())
             .map_err(|_| REQUEST_FAILED)?;
-        self.response(response)
+        self.response(response, path)
     }
 
     fn evidence(&self, citation: Citation) -> Result<Value, &'static str> {
@@ -68,7 +76,7 @@ impl Client {
             .header("Accept", "application/json")
             .call()
             .map_err(|_| REQUEST_FAILED)?;
-        let body = self.response(response)?;
+        let body = self.response(response, "/v1/evidence")?;
         if body["evidence"]["chunk_id"] != citation.chunk_id
             || body["evidence"]["revision"] != citation.revision
         {
@@ -80,17 +88,28 @@ impl Client {
     fn response(
         &self,
         mut response: ureq::http::Response<ureq::Body>,
+        path: &str,
     ) -> Result<Value, &'static str> {
-        match response.status().as_u16() {
-            200 => {}
-            401 | 403 => return Err("The shared service denied this signed caller."),
-            404 => return Err(EVIDENCE_UNAVAILABLE),
-            409 => {
+        match (response.status().as_u16(), path) {
+            (200, _) => {}
+            (401 | 403, _) => return Err("The shared service denied this signed caller."),
+            (404, INVENTORY) => return Err("No readable inventory matches that collection."),
+            (404, _) => return Err(EVIDENCE_UNAVAILABLE),
+            (409, _) if response.headers().contains_key("retry-after") => {
+                return Err("The shared service is busy. Retry the same request.");
+            }
+            (409, INVENTORY) => {
+                return Err("Inventory or access changed. List sources again without a cursor.");
+            }
+            (409, GUIDED) => {
                 return Err(
                     "The shared relationship changed. Request a new preview before confirming.",
                 );
             }
-            400 => return Err("The shared service rejected the request parameters."),
+            (409, _) => {
+                return Err("The shared operation could not continue. Retry with current access.");
+            }
+            (400, _) => return Err("The shared service rejected the request parameters."),
             _ => return Err(REQUEST_FAILED),
         }
         let mut bytes = Vec::new();
@@ -190,6 +209,27 @@ fn contains_secret(value: &Value, secret: &str) -> bool {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct Search {
+    question: String,
+    #[serde(default = "default_limit")]
+    limit: usize,
+    #[serde(default)]
+    mode: SearchMode,
+    #[serde(default)]
+    rerank: bool,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum SearchMode {
+    #[default]
+    Lexical,
+    Vector,
+    Hybrid,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Preview {
     request: Box<RawValue>,
 }
@@ -216,6 +256,21 @@ pub(super) fn tools() -> Value {
     let request = json!({"type":"object", "description":"Typed relationship request from the signed service contract."});
     let annotations = json!({"readOnlyHint":true, "destructiveHint":false, "idempotentHint":true, "openWorldHint":true});
     json!({"tools":[
+        {"name":"search", "description":"Find cited candidate passages as the configured signed reader. Reopen citations before relying on them. Use the relationship tools for directed paths.",
+         "inputSchema":{"type":"object","properties":{
+             "question":{"type":"string","minLength":1,"maxLength":MAX_QUESTION},
+             "limit":{"type":"integer","minimum":1,"maximum":MAX_RESULTS,"default":default_limit()},
+             "mode":{"enum":["lexical","vector","hybrid"],"default":"lexical",
+                     "description":"Vector and hybrid modes use the service's configured embedding provider."},
+             "rerank":{"type":"boolean","default":false,
+                       "description":"Use the configured reranker when available."}
+         },"required":["question"],"additionalProperties":false},"annotations":annotations},
+        {"name":"list_sources", "description":"List a page of committed source metadata for an authorized collection. Pass the returned next_cursor until it is null. Start without a cursor if the inventory changed.",
+         "inputSchema":{"type":"object","properties":{
+             "collection":{"type":"string","minLength":1,"maxLength":64},
+             "limit":{"type":"integer","minimum":1,"maximum":MAX_PAGE_ENTRIES,"default":DEFAULT_PAGE_ENTRIES},
+             "cursor":{"type":"string","minLength":CURSOR_LENGTH,"maxLength":CURSOR_LENGTH}
+         },"required":["collection"],"additionalProperties":false},"annotations":annotations},
         {"name":"preview_relationship", "description":"Preview a typed relationship as the configured signed reader. The service withholds the terminal value.",
          "inputSchema":{"type":"object", "properties":{"request":request}, "required":["request"], "additionalProperties":false},
          "annotations":annotations},
@@ -224,7 +279,8 @@ pub(super) fn tools() -> Value {
                         "required":["request", "confirmed"], "additionalProperties":false}, "annotations":annotations},
         {"name":"open_citation", "description":"Reopen an exact shared evidence reference as the configured signed reader.",
          "inputSchema":{"type":"object", "properties":{"chunk_id":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"},
-                                                            "revision":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"}},
+                                                            "revision":{"type":"string","minLength":1,"maxLength":MAX_REVISION_BYTES,
+                                                                        "description":"Exact revision returned with the evidence."}},
                         "required":["chunk_id", "revision"], "additionalProperties":false}, "annotations":annotations}
     ]})
 }
@@ -234,29 +290,58 @@ pub(super) fn call(client: &Client, raw: Option<&RawValue>) -> Result<Value, (i3
         name, arguments, ..
     } = params(raw)?;
     let result = match name.as_str() {
+        "search" => {
+            let options: Search = params(Some(&arguments))?;
+            if options.limit > MAX_RESULTS
+                || crate::store::validate_query(&options.question, options.limit).is_err()
+            {
+                return Err(INVALID_PARAMS);
+            }
+            client.post(
+                QUERY,
+                &json!({"question":options.question, "limit":options.limit,
+                        "mode":options.mode, "rerank":options.rerank, "graph":false}),
+            )
+        }
+        "list_sources" => {
+            let request: InventoryRequest = params(Some(&arguments))?;
+            if !request.valid() {
+                return Err(INVALID_PARAMS);
+            }
+            client.post(INVENTORY, &request)
+        }
         "preview_relationship" => {
             let Preview { request } = params(Some(&arguments))?;
             if !is_object(&request) {
                 return Err(INVALID_PARAMS);
             }
-            client.guided(&Guided {
-                request: &request,
-                confirmed: None,
-            })
+            client.post(
+                GUIDED,
+                &Guided {
+                    request: &request,
+                    confirmed: None,
+                },
+            )
         }
         "confirm_relationship" => {
             let Confirm { request, confirmed } = params(Some(&arguments))?;
             if !is_object(&request) || !is_object(&confirmed) {
                 return Err(INVALID_PARAMS);
             }
-            client.guided(&Guided {
-                request: &request,
-                confirmed: Some(&confirmed),
-            })
+            client.post(
+                GUIDED,
+                &Guided {
+                    request: &request,
+                    confirmed: Some(&confirmed),
+                },
+            )
         }
         "open_citation" => {
             let citation: Citation = params(Some(&arguments))?;
-            if !citation.valid() {
+            if !citation.valid_chunk_id()
+                || !(1..=MAX_REVISION_BYTES).contains(&citation.revision.len())
+                || citation.revision.chars().any(char::is_control)
+            {
                 return Err(INVALID_PARAMS);
             }
             client.evidence(citation)
@@ -274,7 +359,7 @@ mod tests {
     use tiny_http::{Header, Method, Response, Server, StatusCode};
 
     #[test]
-    fn shared_stdio_uses_one_signed_reader_and_only_the_guided_contract() {
+    fn shared_stdio_uses_one_signed_reader_and_read_only_routes() {
         const PROXY_TEST: &str = "ANYRAG_MCP_TEST_WITH_ENV_PROXY";
         if env::var_os(PROXY_TEST).is_none() {
             // Keep the proxy environment private to the child test process.
@@ -284,7 +369,7 @@ mod tests {
             child
                 .args([
                     "--exact",
-                    "mcp::shared::tests::shared_stdio_uses_one_signed_reader_and_only_the_guided_contract",
+                    "mcp::shared::tests::shared_stdio_uses_one_signed_reader_and_read_only_routes",
                     "--nocapture",
                 ])
                 .env(PROXY_TEST, "1")
@@ -345,12 +430,18 @@ mod tests {
         let interpretation = json!({"root":"Arrival Desk", "path_predicates":["uses"], "scope":["day"],
                                     "identity":{"status":"reviewed_alias"}});
         let chunk = "a".repeat(64);
-        let revision = "b".repeat(64);
+        let revision = "opaque-version/2+annotation";
         let stale = "c".repeat(64);
         let preview = json!({"status":"confirm_relationship", "interpretation":interpretation});
         let confirmed = json!({"status":"value", "value":"Current Kit", "name_bindings":[{"chunk_id":chunk,"revision":revision}]});
         let evidence =
             json!({"evidence":{"chunk_id":chunk,"revision":revision,"text":"Current quote."}});
+        let search_hits =
+            json!({"evidence":[{"chunk_id":chunk,"revision":revision,"text":"Current quote."}]});
+        let inventory_cursor = format!("v1.{}.{}", "d".repeat(64), "A".repeat(43));
+        let inventory = json!({"schema_version":1,"collection":"manuals","total_sources":2,
+            "sources":[{"source_id":"d".repeat(64),"path":"desk.md","revision":revision}],
+            "next_cursor":inventory_cursor});
         let worker = thread::spawn({
             let typed = typed.clone();
             let interpretation = interpretation.clone();
@@ -358,6 +449,9 @@ mod tests {
             let preview = preview.clone();
             let confirmed = confirmed.clone();
             let evidence = evidence.clone();
+            let search_hits = search_hits.clone();
+            let inventory = inventory.clone();
+            let inventory_cursor = inventory_cursor.clone();
             move || {
                 let signed = format!("Bearer {TOKEN}");
                 let citation = format!("/v1/evidence/{chunk}");
@@ -397,6 +491,34 @@ mod tests {
                         citation.as_str(),
                         Value::Null,
                         403,
+                        json!({"error":TOKEN}),
+                    ),
+                    (
+                        Method::Post,
+                        QUERY,
+                        json!({"question":"Arrival Desk","mode":"lexical","limit":5,"graph":false,"rerank":false}),
+                        200,
+                        search_hits,
+                    ),
+                    (
+                        Method::Post,
+                        QUERY,
+                        json!({"question":"Arrival Desk","mode":"hybrid","limit":3,"graph":false,"rerank":true}),
+                        403,
+                        json!({"error":TOKEN}),
+                    ),
+                    (
+                        Method::Post,
+                        INVENTORY,
+                        json!({"collection":"manuals","limit":1}),
+                        200,
+                        inventory,
+                    ),
+                    (
+                        Method::Post,
+                        INVENTORY,
+                        json!({"collection":"manuals","limit":1,"cursor":inventory_cursor}),
+                        409,
                         json!({"error":TOKEN}),
                     ),
                 ] {
@@ -446,7 +568,11 @@ mod tests {
         append(json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
         append(json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}));
         for (id, name, args) in [
-            (3, "search", json!({"question":"private data"})),
+            (
+                3,
+                "search",
+                json!({"question":"private data","answer_endpoint":"chat"}),
+            ),
             (
                 4,
                 "preview_relationship",
@@ -475,6 +601,28 @@ mod tests {
                 "open_citation",
                 json!({"chunk_id":chunk,"revision":revision}),
             ),
+            (12, "search", json!({"question":"Arrival Desk"})),
+            (
+                13,
+                "search",
+                json!({"question":"Arrival Desk","limit":3,"mode":"hybrid","rerank":true}),
+            ),
+            (14, "search", json!({"question":"Arrival Desk","limit":21})),
+            (
+                15,
+                "list_sources",
+                json!({"collection":"manuals","limit":1}),
+            ),
+            (
+                16,
+                "list_sources",
+                json!({"collection":"manuals","limit":1,"cursor":inventory_cursor}),
+            ),
+            (
+                17,
+                "list_sources",
+                json!({"collection":"manuals","cursor":"invalid"}),
+            ),
         ] {
             append(
                 json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":args}}),
@@ -502,6 +650,8 @@ mod tests {
         assert_eq!(
             names,
             [
+                "search",
+                "list_sources",
                 "preview_relationship",
                 "confirm_relationship",
                 "open_citation"
@@ -512,8 +662,16 @@ mod tests {
         for (frame, expected) in [(4, preview), (5, confirmed), (6, evidence)] {
             assert_eq!(frames[frame]["result"]["structuredContent"], expected);
         }
-        for result in &frames[7..] {
+        for result in &frames[7..11] {
             assert_eq!(result["result"]["isError"], true);
         }
+        assert_eq!(frames[11]["result"]["structuredContent"], search_hits);
+        assert_eq!(frames[12]["result"]["isError"], true);
+        assert!(!frames[12].to_string().contains("Current quote."));
+        assert_eq!(frames[13]["error"]["code"], -32602);
+        assert_eq!(frames[14]["result"]["structuredContent"], inventory);
+        assert_eq!(frames[15]["result"]["isError"], true);
+        assert!(frames[15].to_string().contains("without a cursor"));
+        assert_eq!(frames[16]["error"]["code"], -32602);
     }
 }

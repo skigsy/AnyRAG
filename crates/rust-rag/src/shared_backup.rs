@@ -1,7 +1,7 @@
 use super::auth::Principal;
 use super::{
-    ApiError, ApiResult, MAX_POLICY, Service, bounded_file, hex_id, new_private, strict_json,
-    unavailable,
+    ApiError, ApiResult, MAX_POLICY, Service, Source, bounded_file, hex_id, new_private,
+    strict_json, unavailable,
 };
 use crate::store;
 use anyhow::{Result, ensure};
@@ -104,6 +104,20 @@ fn validate_snapshot(path: &Path, expected: &str, live: &Connection) -> Result<C
     let quick: String = db.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
     ensure!(quick == "ok", "Snapshot integrity check failed.");
     Ok(db)
+}
+
+fn stage_git_restore(path: &Path, live: &Connection) -> Result<Connection> {
+    // This path is the validated private copy, never the backup store's file.
+    let mut staged = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
+    staged.execute_batch(
+        "PRAGMA trusted_schema=OFF; PRAGMA temp_store=MEMORY;
+         PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;",
+    )?;
+    store::retain_git_restore_floors(live, &mut staged)?;
+    Ok(staged)
 }
 
 fn copy_snapshot(from: &Path, to: &Path) -> Result<()> {
@@ -321,6 +335,12 @@ impl Service {
                 .open_collection(collection, false)
                 .map_err(unavailable)?;
             let checked = validate_snapshot(&path, expected, &live).map_err(invalid)?;
+            let checked = if matches!(self.sources[collection], Source::Git(_)) {
+                drop(checked);
+                stage_git_restore(&path, &live).map_err(invalid)?
+            } else {
+                checked
+            };
             copies.push((checked, live));
         }
         self.confirm_admin(principal, &digest)?;

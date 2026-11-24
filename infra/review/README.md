@@ -1,10 +1,10 @@
 # Shared operator console and Graph review
 
-The shared console shows collection coverage and graph work behind the same per-user gateway as signed Graph review. Operators can run an evidence trace, check current citation access, and open proposals with their source quotes. [Shared Graph review](../private-vm.md#review-shared-graph-relationships) · [Scoped decision contract](../private-vm.md#look-up-a-reviewed-relationship)
+The shared console lets readers search their granted collections and reopen current citations. Operators can see collection coverage, trace evidence delivery, and review graph proposals with their supporting quotes. [Shared Graph review](../private-vm.md#review-shared-graph-relationships) · [Scoped decision contract](../private-vm.md#look-up-a-reviewed-relationship)
 
 ## Private gateway
 
-Serve `index.html`, `review.css`, `review.js`, `operations.js` and `diagnostics.js` at `/review/` on the private HTTPS gateway. Serve JavaScript as `text/javascript`. The same browser origin provides these routes to the private AnyRAG upstream. Add the operator status and query routes to the gateway allowlist to enable coverage and evidence tracing.
+Serve `index.html`, `review.css`, `review.js`, `operations.js` and `diagnostics.js` at `/review/` on the private HTTPS gateway. Serve JavaScript as `text/javascript`. The same browser origin provides these routes to the private AnyRAG upstream. Add the operator status and query routes to the gateway allowlist to enable Search, Coverage, and evidence tracing.
 
 | Method | Path |
 | --- | --- |
@@ -21,6 +21,14 @@ Serve `index.html`, `review.css`, `review.js`, `operations.js` and `diagnostics.
 - Send `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff` and a Content Security Policy with `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`. Disable response caching and avoid logging JWTs, source text, decision bodies or cookies.
 
 Before enabling the page, verify that a signed reviewer can list and decide in a granted collection, a read-only identity cannot list or decide, a revoked session cannot reopen protected evidence, and a cross-origin POST is rejected at the gateway. The page's checks supplement the gateway and AnyRAG authorization.
+
+## Search authorized documents
+
+Choose **Search documents** on Overview or **Search** in the sidebar. Type a term or question. Search covers every collection the signed-in session can read. The collection picker on operator pages filters those views.
+
+Keyword search is the default and uses no model. When every readable collection permits the configured embedding provider, you can choose Hybrid search. Hybrid may send the question to that provider. Search does not ask an answer model or traverse graph links. Use **Activity** for those diagnostics.
+
+Each result shows its collection, source location, and an indexed excerpt. **Open citation** checks current access and the exact revision before showing the full passage. An edit followed by sync can retire a citation. Run a new search to check current results. Search text and excerpts stay in the page session. Changes to observed grants clear them.
 
 ## Inspect shared operations
 

@@ -17,6 +17,7 @@
         <div class="ops-brand"><span class="wordmark">Any <span>RAG</span></span><span class="ops-caption">Operator console</span></div>
         <nav class="ops-nav" aria-label="Dashboard sections">
           <button type="button" data-view="overview" aria-current="page"><span class="nav-icon icon-overview" aria-hidden="true"></span>Overview</button>
+          <button type="button" data-view="search"><span class="nav-icon icon-search" aria-hidden="true"></span>Search</button>
           <button type="button" data-view="coverage"><span class="nav-icon icon-coverage" aria-hidden="true"></span>Coverage</button>
           <button type="button" data-view="sources"><span class="nav-icon icon-sources" aria-hidden="true"></span>Sources</button>
           <button type="button" data-view="activity"><span class="nav-icon icon-activity" aria-hidden="true"></span>Activity</button>
@@ -29,8 +30,9 @@
       <header class="ops-header">
         <div><h1 id="ops-view-title" tabindex="-1">Overview</h1><p class="metadata" id="ops-view-summary">Index health and evidence checks</p></div>
         <div class="ops-toolbar">
-          <label for="ops-collection">Collection</label>
+          <label id="ops-collection-label" for="ops-collection">Collection</label>
           <select id="ops-collection" disabled><option value="">Waiting for status</option></select>
+          <button type="button" id="ops-start-search" class="ops-secondary">Search documents</button>
           <button type="button" id="ops-refresh" class="ops-secondary">Refresh</button>
         </div>
       </header>
@@ -63,6 +65,7 @@
           <section class="panel ops-chart" aria-labelledby="ops-sync-title"><header class="ops-panel-head"><h2 id="ops-sync-title">Shared sync</h2></header><div id="ops-sync"></div></section>
         </div>
       </section>
+      <section data-panel="search" aria-labelledby="ops-view-title" hidden><div id="search-diagnostics"></div></section>
       <section data-panel="coverage" aria-labelledby="ops-view-title" hidden>
         <div class="panel ops-ledger">
           <header class="ops-panel-head"><h2>Collection freshness</h2><span class="ops-chart-meta">Last observed state</span></header>

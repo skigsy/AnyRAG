@@ -74,9 +74,9 @@ jobs:
           # Shared-service fixtures use bounded deadlines. Avoid competing
           # Windows loopback and filesystem tests on the hosted runner.
           if ($IsWindows) { $env:RUST_TEST_THREADS = '1' }
-          cargo test --locked --features pdf,ocr,docx,xlsx,shared,inference,mcp,dashboard
+          cargo test --locked --features pdf,ocr,docx,xlsx,shared,inference,mcp,dashboard,note-links
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cargo build --locked --features pdf,ocr,docx,xlsx,shared,inference,mcp,dashboard --bin rust-rag
+          cargo build --locked --features pdf,ocr,docx,xlsx,shared,inference,mcp,dashboard,note-links --bin rust-rag
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $binary = if ($IsWindows) { 'rust-rag.exe' } else { 'rust-rag' }
           python crates/rust-rag/check.py (Join-Path $env:CARGO_TARGET_DIR "debug/$binary") --check-advanced

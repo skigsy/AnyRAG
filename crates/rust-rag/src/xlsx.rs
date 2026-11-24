@@ -22,6 +22,8 @@ type ParseResult<T> = std::result::Result<T, &'static str>;
 pub struct Cell {
     pub anchor: String,
     pub text: String,
+    #[serde(default)]
+    pub flat_table: bool,
 }
 
 pub fn extract(raw: &[u8]) -> Result<Vec<Cell>> {
@@ -87,7 +89,12 @@ fn parse(raw: &[u8]) -> ParseResult<Vec<Cell>> {
     let mut cells = Vec::new();
     let mut bytes = 0;
     for sheet in names {
+        let unmerged = book
+            .merge_cells_by_sheet_name(&sheet)
+            .is_ok_and(|ranges| ranges.is_empty());
         let mut reader = book.worksheet_cells_reader(&sheet).map_err(|_| INVALID)?;
+        let first = cells.len();
+        let (mut last_row, mut last_column) = (0, 0);
         while let Some(cell) = reader
             .next_cell_with_formula_metadata()
             .map_err(|_| INVALID)?
@@ -105,10 +112,20 @@ fn parse(raw: &[u8]) -> ParseResult<Vec<Cell>> {
                 return Err(LIMIT);
             }
             let address = cell_address(cell.pos);
+            last_row = last_row.max(cell.pos.0);
+            last_column = last_column.max(cell.pos.1);
             cells.push(Cell {
                 anchor: format!("sheet:{sheet}!{address}"),
                 text,
+                flat_table: false,
             });
+        }
+        let area = (u64::from(last_row) + 1).checked_mul(u64::from(last_column) + 1);
+        if unmerged && last_row > 0 && last_column > 0 && area == Some((cells.len() - first) as u64)
+        {
+            for cell in &mut cells[first..] {
+                cell.flat_table = true;
+            }
         }
     }
     Ok(cells)

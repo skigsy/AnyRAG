@@ -47,6 +47,7 @@ pub fn capabilities() -> Value {
             "mcp_stdio": cfg!(feature = "mcp"),
             "health_report": cfg!(feature = "dashboard"),
             "local_dashboard": cfg!(feature = "dashboard"),
+            "note_links": cfg!(feature = "note-links"),
             "shared_service": cfg!(feature = "shared"),
             "aws_adapters": cfg!(feature = "aws")
         },
@@ -83,6 +84,7 @@ pub fn plan(profile: Option<Profile>) -> Value {
             &[
                 "rust-rag --state-dir <private-state> init",
                 "rust-rag --state-dir <private-state> ingest <vault> --sync",
+                "Read docs/setup.md#follow-links-in-an-obsidian-vault for optional link traversal",
             ],
         ),
         Some(Profile::Semantic) => (

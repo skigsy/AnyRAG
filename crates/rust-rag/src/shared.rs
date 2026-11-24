@@ -7,6 +7,8 @@ mod auth;
 mod backup;
 #[path = "shared_graph_policy.rs"]
 mod graph_policy;
+#[path = "shared_inventory.rs"]
+pub(crate) mod inventory;
 #[path = "shared_relationship.rs"]
 mod relationship;
 #[cfg(test)]
@@ -394,6 +396,7 @@ impl Policy {
 
 enum Source {
     Folder(PathBuf),
+    Git(crate::git_source::GitSource),
     #[cfg(feature = "aws")]
     S3(crate::cloud::S3Source),
 }
@@ -402,6 +405,7 @@ impl Source {
     fn folder(&self) -> Option<&Path> {
         match self {
             Self::Folder(root) => Some(root),
+            Self::Git(_) => None,
             #[cfg(feature = "aws")]
             Self::S3(_) => None,
         }
@@ -410,6 +414,7 @@ impl Source {
     fn identity(&self) -> Result<String> {
         match self {
             Self::Folder(root) => Ok(files::display_path(root)?.to_owned()),
+            Self::Git(source) => Ok(source.identity().to_owned()),
             #[cfg(feature = "aws")]
             Self::S3(source) => Ok(source.identity()),
         }
@@ -420,6 +425,8 @@ impl Source {
         db: &mut Connection,
         pdf: bool,
         ocr: &mut store::OcrBatch<'_>,
+        check_policy: &impl Fn() -> Result<()>,
+        publish_gate: Option<&RwLock<()>>,
     ) -> Result<Value> {
         match self {
             Self::Folder(root) => {
@@ -428,8 +435,14 @@ impl Source {
                     "The trusted source root changed."
                 );
                 let before = files::inventory(root)?;
-                let mut report =
-                    store::ingest_with_ocr(db, root, true, pdf, cfg!(feature = "docx"), ocr)?;
+                let options = store::LocalIngestOptions {
+                    sync: true,
+                    pdf,
+                    docx: cfg!(feature = "docx"),
+                    xlsx: cfg!(feature = "xlsx"),
+                    ..Default::default()
+                };
+                let mut report = store::ingest_with_options(db, root, options, ocr)?;
                 let after = files::inventory(root)?;
                 if before.files != after.files
                     || before.entries != after.entries
@@ -439,6 +452,7 @@ impl Source {
                 }
                 Ok(report)
             }
+            Self::Git(source) => store::ingest_git(db, source, pdf, check_policy, publish_gate),
             #[cfg(feature = "aws")]
             Self::S3(source) => store::ingest_s3(db, source, pdf),
         }
@@ -452,6 +466,9 @@ impl Source {
             Self::Folder(root) => {
                 let relative = Path::new(path).strip_prefix(files::display_path(root)?)?;
                 item["path"] = json!(files::display_path(relative)?.replace('\\', "/"));
+            }
+            Self::Git(source) => {
+                item["path"] = json!(source.relative_path(path)?);
             }
             #[cfg(feature = "aws")]
             Self::S3(_) => {}
@@ -577,6 +594,7 @@ struct Service {
     #[cfg(feature = "inference")]
     reranker: Option<crate::inference::Reranker>,
     reranker_status: Option<&'static str>,
+    inventory_cursor_key: ring::hmac::Key,
     graph: GraphMode,
     extractor: Option<String>,
     allow_unreviewed_model_links: bool,
@@ -713,9 +731,16 @@ impl Service {
                     roots.push(dir.clone());
                     Source::Folder(dir)
                 }
+                Some("git") => {
+                    let source = crate::git_source::GitSource::new(config)?;
+                    roots.push(source.root().to_path_buf());
+                    Source::Git(source)
+                }
                 #[cfg(feature = "aws")]
                 Some("s3") => Source::S3(crate::cloud::S3Source::new(&config)?),
-                _ => anyhow::bail!("Use a trusted folder source, or build with aws for S3."),
+                _ => anyhow::bail!(
+                    "Use a trusted folder or bare Git source, or build with aws for S3."
+                ),
             };
             sources.insert(name, source);
         }
@@ -907,6 +932,11 @@ impl Service {
             #[cfg(feature = "inference")]
             reranker,
             reranker_status,
+            inventory_cursor_key: ring::hmac::Key::generate(
+                ring::hmac::HMAC_SHA256,
+                &ring::rand::SystemRandom::new(),
+            )
+            .map_err(|_| anyhow::anyhow!("Source inventory signing is unavailable."))?,
             graph: profile.graph.mode,
             extractor: profile.graph.extractor,
             allow_unreviewed_model_links: profile.graph.allow_unreviewed_model_links,
@@ -1934,11 +1964,20 @@ impl Service {
                 Ok(result)
             };
             let mut ocr = store::OcrBatch::new(self.ocr.as_ref()).with_extraction(&mut extract);
-            let report = if source.folder().is_some() {
+            let check_publish = || check_policy().map(drop);
+            let report = if matches!(source, Source::Folder(_) | Source::Git(_)) {
                 let mut ocr = ocr.with_publish_gate(&self.gate);
-                write.allow_reads(|| source.ingest(&mut db, self.pdf, &mut ocr))?
+                write.allow_reads(|| {
+                    source.ingest(
+                        &mut db,
+                        self.pdf,
+                        &mut ocr,
+                        &check_publish,
+                        Some(&self.gate),
+                    )
+                })?
             } else {
-                source.ingest(&mut db, self.pdf, &mut ocr)
+                source.ingest(&mut db, self.pdf, &mut ocr, &check_publish, None)
             };
             let report = match report {
                 Ok(report) => report,
@@ -2508,6 +2547,7 @@ fn route(service: &Arc<Service>, request: &mut tiny_http::Request) -> ApiResult<
             }
             service.query(&principal, query)?
         }
+        (&Post, inventory::API_PATH) => service.inventory(&principal, request_json(request)?)?,
         (&Post, "/v1/relationship") => service.relationship(&principal, request_json(request)?)?,
         (&Post, "/v1/relationship/guided") => {
             service.guided_relationship(&principal, request_json(request)?)?

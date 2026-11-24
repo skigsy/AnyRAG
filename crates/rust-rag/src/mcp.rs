@@ -383,10 +383,14 @@ fn call(index: &SearchIndex<'_>, raw: Option<&RawValue>) -> Result<Value, (i32, 
 }
 
 impl Citation {
+    fn valid_chunk_id(&self) -> bool {
+        self.chunk_id.len() == 64 && self.chunk_id.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }
+
     fn valid(&self) -> bool {
-        [&self.chunk_id, &self.revision]
-            .into_iter()
-            .all(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        self.valid_chunk_id()
+            && self.revision.len() == 64
+            && self.revision.bytes().all(|byte| byte.is_ascii_hexdigit())
     }
 }
 

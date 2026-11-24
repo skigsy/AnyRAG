@@ -162,6 +162,8 @@ Build context from authorized, deduplicated passages within a token budget. Pres
 
 Keep the same questions, expected evidence, and access policy for before-and-after runs. Include exact identifiers, paraphrases, genuinely multi-hop questions, and questions with no supported answer. Record the corpus, settings, model revisions, and limits so another operator can reproduce the comparison. [Any RAG benchmark examples](benchmarks.md)
 
+Use the optional [local retrieval check](setup.md#check-retrieval-on-your-own-questions) to score whether keyword or Graph RAG results contain every passage you specified. The check reopens citations and compares exact excerpts. Measure answer quality, access rules, and hosted-model behavior separately for those workloads.
+
 | Try it | What to inspect |
 | --- | --- |
 | [Keyword search and source review](setup.md#review-sources-and-explain-results) | Open the exact indexed quote, read the retrieval explanation, then replace or remove the source and try the saved citation again. |

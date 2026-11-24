@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+mod check_retrieval;
 #[cfg(feature = "aws")]
 mod cloud;
 #[cfg(feature = "dashboard")]
@@ -12,6 +13,8 @@ mod document_worker;
 mod docx;
 mod enrichment;
 mod files;
+#[cfg(feature = "shared")]
+mod git_source;
 mod graph;
 mod guide;
 #[cfg(feature = "inference")]
@@ -20,6 +23,9 @@ mod inference;
 mod mcp;
 #[cfg(feature = "model")]
 mod model;
+mod native_table;
+#[cfg(feature = "note-links")]
+mod note_links;
 mod ocr;
 #[cfg(feature = "pdf")]
 mod pdf;
@@ -247,6 +253,26 @@ enum Command {
         #[cfg(feature = "inference")]
         #[arg(long)]
         reranker_profile: Option<PathBuf>,
+    },
+    /// Check whether local retrieval finds expected current source excerpts
+    CheckRetrieval {
+        /// Local UTF-8 JSONL file of questions and expected path/quote pairs
+        cases: PathBuf,
+        /// Number of passages to retrieve per question
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+        /// Expand results through the existing typed graph
+        #[arg(long)]
+        graph: bool,
+    },
+    /// Follow explicit Obsidian wikilinks in a personal index
+    #[cfg(feature = "note-links")]
+    NoteLinks {
+        /// A vault-relative Markdown path or a unique note basename
+        note: String,
+        /// Maximum link hops, up to three
+        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(1..=3))]
+        depth: u8,
     },
     /// Reopen a saved passage in the current personal index
     Citation {
@@ -548,6 +574,13 @@ fn run(cli: Cli) -> Result<Value> {
             }
             result
         }
+        Command::CheckRetrieval {
+            cases,
+            limit,
+            graph,
+        } => check_retrieval::run(&mut db, &cases, limit, graph),
+        #[cfg(feature = "note-links")]
+        Command::NoteLinks { note, depth } => note_links::run(&mut db, &note, depth),
         Command::Citation { chunk_id, revision } => {
             store::open_citation(&mut db, &chunk_id, &revision)
         }
@@ -1113,6 +1146,7 @@ pub fn run_cli() -> ExitCode {
     let answer_command = matches!(cli.command, Command::Answer { .. });
     #[cfg(not(feature = "model"))]
     let answer_command = false;
+    let check_retrieval = matches!(cli.command, Command::CheckRetrieval { .. });
     let require_complete = matches!(
         cli.command,
         Command::Ingest {
@@ -1134,7 +1168,8 @@ pub fn run_cli() -> ExitCode {
             if incomplete && !json {
                 eprintln!("Folder sync is incomplete. Review the ingest report before retrying.");
             }
-            (result, withheld || incomplete)
+            let missed = check_retrieval && result["status"] == "misses";
+            (result, withheld || incomplete || missed)
         }
         Err(error) if !json => {
             eprintln!("{error}");

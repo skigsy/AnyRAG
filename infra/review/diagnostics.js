@@ -213,7 +213,33 @@ function showTrace(host, trace, collection, reopen) {
   }
 }
 
-function showCitation(host, evidence) {
+function showSearchHits(host, rows, reopen) {
+  const list = element("ol", undefined, "search-hits");
+  for (const row of rows) {
+    const identity = evidenceIdentity(row);
+    if (!identity?.collection || !identity.revision) continue;
+    const hit = element("li", undefined, "search-hit");
+    const location = [
+      identity.collection,
+      Number.isInteger(row.page) && row.page > 0 ? `Page ${row.page}` : "",
+      typeof row.anchor === "string" ? row.anchor : "",
+      row.match_status === "weak_match" ? "Possible match" : "",
+    ].filter(Boolean).join(" · ");
+    hit.append(element("h3", identity.path || "Indexed source"), element("p", location, "metadata"));
+    if (typeof row.text === "string") {
+      const text = row.text.replace(/\s+/g, " ").trim();
+      const characters = Array.from(text);
+      const preview = characters.length > 280 ? characters.slice(0, 280).join("").trimEnd() + "…" : text;
+      if (preview) hit.append(element("p", preview, "search-passage"));
+    }
+    hit.append(action("Open citation", () => reopen(identity)));
+    list.append(hit);
+  }
+  host.replaceChildren(list);
+  return list.childElementCount;
+}
+
+function showCitation(host, evidence, expandPassage = false) {
   const identity = evidenceIdentity(evidence);
   const values = [
     ["Collection", identity.collection],
@@ -221,6 +247,7 @@ function showCitation(host, evidence) {
     ["Revision", identity.revision],
     ["Chunk", identity.id],
     ["Page", evidence.page ?? ""],
+    ["Location", typeof evidence.anchor === "string" ? evidence.anchor : ""],
     ["Offsets", Number.isInteger(evidence.start) && Number.isInteger(evidence.end)
       ? `${evidence.start}–${evidence.end}` : ""],
   ];
@@ -234,12 +261,13 @@ function showCitation(host, evidence) {
   host.replaceChildren(fields);
   if (typeof evidence.text === "string" && evidence.text.length) {
     const detail = element("details", undefined, "diagnostic-excerpt");
+    detail.open = expandPassage;
     detail.append(element("summary", "Read indexed passage"), element("pre", evidence.text));
     host.append(detail);
   }
 }
 
-/** Mount in the shared console's Activity and Sources views, using its same-origin request. */
+/** Mount the signed Search, Activity, and Sources views. */
 export function mountDiagnostics(request, {
   onTrace = () => {}, onCitation = () => {}, openSources = () => {}, onAccessChanged = () => {},
 } = {}) {
@@ -247,8 +275,12 @@ export function mountDiagnostics(request, {
     "Totals cover your granted collections. Collection selection filters paths and passages.");
   const sources = panel(document.getElementById("citation-diagnostics"), "Check a citation",
     "Reopen an indexed citation under your current session.");
+  const search = panel(document.getElementById("search-diagnostics"), "Find a passage",
+    "Search all collections you can read, then open the exact source passage.");
   activity.status.id = "trace-status";
   sources.status.id = "citation-status";
+  search.status.id = "search-status";
+  search.form.classList.add("search-form");
 
   const question = input("trace-question", { name: "question", required: true, maxLength: 4000 });
   const mode = Object.assign(element("select"), { id: "trace-mode", name: "mode" });
@@ -267,16 +299,43 @@ export function mountDiagnostics(request, {
   const chunk = input("citation-chunk", { name: "chunk", maxLength: 64, pattern: "[0-9a-fA-F]{64}", required: true });
   const citationSubmit = Object.assign(element("button", "Check citation"), { type: "submit" });
   sources.form.append(field("Chunk ID", chunk), citationSubmit);
+  const searchQuestion = input("search-question", { type: "search", required: true, maxLength: 4000, disabled: true });
+  const searchLabel = field("Term or question", searchQuestion);
+  searchLabel.className = "search-question";
+  const searchMode = Object.assign(element("select"), { id: "search-mode" });
+  const hybrid = Object.assign(element("option", "Hybrid"), { value: "hybrid" });
+  searchMode.append(Object.assign(element("option", "Keyword"), { value: "lexical" }), hybrid);
+  const searchModeLabel = field("Retrieval mode", searchMode);
+  const searchSubmit = Object.assign(element("button", "Search"), { type: "submit", disabled: true });
+  const hybridNote = element("p", "Hybrid can send the question to the configured embedding provider.", "metadata");
+  search.form.append(searchLabel, searchModeLabel, searchSubmit);
+  search.form.after(hybridNote);
+  searchModeLabel.hidden = true;
+  hybridNote.hidden = true;
+  message(search, "Checking collection access…");
 
   let collection = "";
   let trace;
   let traceVersion = 0;
   let citationVersion = 0;
+  let searchVersion = 0;
+  let searchAvailable = false;
+  let searching = false;
+
+  function clearSearch() {
+    searchVersion += 1;
+    searching = false;
+    search.form.reset();
+    search.result.replaceChildren();
+    searchSubmit.disabled = !searchAvailable;
+    message(search, "");
+  }
 
   function clear() {
     traceVersion += 1;
     citationVersion += 1;
     trace = undefined;
+    clearSearch();
     activity.form.reset();
     sources.form.reset();
     for (const view of [activity, sources]) {
@@ -295,7 +354,7 @@ export function mountDiagnostics(request, {
     return true;
   }
 
-  async function checkCitation(id, expected) {
+  async function checkCitation(id, expected, fromSearch = false) {
     if (!citationId.test(id)) {
       message(sources, "Enter a 64-character chunk ID from an indexed citation.", "warn");
       return;
@@ -306,22 +365,24 @@ export function mountDiagnostics(request, {
     sources.result.replaceChildren();
     message(sources, "Checking the current citation…");
     try {
-      const { evidence } = await request("/v1/evidence/" + id);
+      const { schema_version, evidence } = await request("/v1/evidence/" + id);
       if (version !== citationVersion) return;
       const identity = evidenceIdentity(evidence);
-      if (!identity || identity.id !== id) throw new Error("Invalid evidence identity.");
+      if (schema_version !== 1 || !identity || identity.id !== id) throw new Error("Invalid evidence identity.");
       if ((expected?.revision && expected.revision !== identity.revision) ||
           (expected?.collection && expected.collection !== identity.collection)) {
-        message(sources, "The citation resolves to a different collection or revision. Rerun the trace.", "warn");
-        onCitation({ title: "Citation identity changed", detail: "The current response did not match the trace.", tone: "warn" });
+        if (fromSearch) clearSearch();
+        message(sources, "The citation resolves to a different collection or revision. Run your search again.", "warn");
+        onCitation({ title: "Citation identity changed", detail: "The current response did not match the selected result.", tone: "warn" });
         return;
       }
-      showCitation(sources.result, evidence);
+      showCitation(sources.result, evidence, fromSearch);
       message(sources, "Citation reopened.", "good");
       onCitation({ title: "Citation reopened", detail: "Current session · indexed citation", tone: "good" });
     } catch (error) {
       if (version !== citationVersion || changedAccess(error, sources)) return;
       if (error.status === 404 || error.status === 403) {
+        if (fromSearch) clearSearch();
         message(sources, "Citation unavailable in the current index or to this session.", "warn");
         onCitation({ title: "Citation unavailable", detail: "Current index or session access", tone: "warn" });
       } else {
@@ -333,9 +394,57 @@ export function mountDiagnostics(request, {
     }
   }
 
-  function reopen(identity) {
+  function reopen(identity, fromSearch = false) {
     openSources();
-    checkCitation(identity.id, identity);
+    checkCitation(identity.id, identity, fromSearch);
+  }
+
+  async function runSearch(event) {
+    event.preventDefault();
+    if (!searchAvailable || searching) return;
+    const question = searchQuestion.value.trim();
+    if (!question) {
+      message(search, "Enter a term or question.", "warn");
+      return;
+    }
+    const mode = hybrid.disabled ? "lexical" : searchMode.value;
+    const version = ++searchVersion;
+    searching = true;
+    searchSubmit.disabled = true;
+    search.result.replaceChildren();
+    message(search, "Searching indexed passages…");
+    try {
+      const response = await request("/v1/query", { question, mode, graph: false, limit: 8 });
+      if (version !== searchVersion) return;
+      if (response?.schema_version !== 1 || !Array.isArray(response.evidence)) {
+        throw new Error("Invalid query response.");
+      }
+      const count = showSearchHits(search.result, response.evidence, item => reopen(item, true));
+      const fallback = mode === "hybrid" && response.effective_mode === "lexical";
+      const method = fallback ? "Keyword fallback" : known(modes, mode, "Search");
+      const partial = response.vector_coverage?.partial === true && !fallback ? " · Vector coverage is incomplete" : "";
+      if (!count) {
+        message(search, `No matching passages · ${method}${partial}`, fallback || partial ? "warn" : "neutral");
+      } else {
+        const match = count === 1 ? "passage" : "passages";
+        const weak = response.status === "weak_match";
+        const detail = weak ? " · Possible matches. Check the citations." : "";
+        message(search, `${count} ${match} · ${method}${partial}${detail}`, weak || fallback || partial ? "warn" : "good");
+      }
+    } catch (error) {
+      if (version !== searchVersion || changedAccess(error, search)) return;
+      const reasons = {
+        EMBEDDING_UNAVAILABLE: "Hybrid is unavailable. Choose Keyword and search again.",
+        MODEL_DESTINATION_DENIED: "Current collection policy restricts the embedding provider. Use Keyword.",
+        QUERY_LIMIT: "Use a term or question of up to 4,000 characters.",
+      };
+      message(search, known(reasons, error.code, "Search unavailable. Check your session or retry."), "warn");
+    } finally {
+      if (version === searchVersion) {
+        searching = false;
+        searchSubmit.disabled = !searchAvailable;
+      }
+    }
   }
 
   async function runTrace(event) {
@@ -379,12 +488,26 @@ export function mountDiagnostics(request, {
   }
 
   activity.form.addEventListener("submit", runTrace);
+  search.form.addEventListener("submit", runSearch);
   sources.form.addEventListener("submit", event => {
     event.preventDefault();
     checkCitation(chunk.value.trim().toLowerCase());
   });
   return {
     clear,
+    setSearchScope(rows) {
+      const wasAvailable = searchAvailable;
+      searchAvailable = rows.length > 0;
+      const hybridAvailable = searchAvailable && rows.every(row => row.vector);
+      hybrid.disabled = !hybridAvailable;
+      searchModeLabel.hidden = !hybridAvailable;
+      hybridNote.hidden = !hybridAvailable;
+      if (!hybridAvailable) searchMode.value = "lexical";
+      searchQuestion.disabled = !searchAvailable;
+      searchSubmit.disabled = !searchAvailable || searching;
+      if (!searchAvailable) message(search, "No searchable collections are available to this session.");
+      else if (!wasAvailable) message(search, "");
+    },
     setCollection(name) {
       const next = typeof name === "string" ? name : "";
       if (collection === next) return;

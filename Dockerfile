@@ -10,7 +10,7 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/rust-rag/Cargo.toml crates/rust-rag/Cargo.toml
 COPY crates/rust-rag/src/ crates/rust-rag/src/
 RUN case "$WITH_AWS" in \
-        0) features=pdf,docx,shared,dashboard,mcp ;; \
+        0) features=pdf,docx,xlsx,shared,dashboard,mcp,note-links ;; \
         1) features=pdf,docx,aws; apt-get update \
             && apt-get install -y --no-install-recommends cmake \
             && rm -rf /var/lib/apt/lists/* || exit 1 ;; \
@@ -23,6 +23,19 @@ RUN case "$WITH_AWS" in \
     esac \
     && cargo build --release --locked --bin rust-rag --features "$features"
 
+RUN set -eu; \
+    mkdir -p /build/dependency-notices; \
+    for crate in "${CARGO_HOME:-/usr/local/cargo}"/registry/src/*/*; do \
+        for notice in "$crate"/LICENSE* "$crate"/LICENCE* "$crate"/COPYING* "$crate"/NOTICE* "$crate"/COPYRIGHT* "$crate"/UNLICENSE*; do \
+            [ -f "$notice" ] || continue; \
+            install -Dm644 "$notice" "/build/dependency-notices/${crate##*/}/${notice##*/}"; \
+        done; \
+    done; \
+    if [ "$WITH_AWS" = 0 ]; then \
+        test -s /build/dependency-notices/pulldown-cmark-0.13.6/LICENSE; \
+        test -s /build/dependency-notices/calamine-0.38.0/LICENSE-MIT.md; \
+    fi
+
 FROM ${RUNTIME_IMAGE} AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -32,6 +45,7 @@ RUN apt-get update \
     && install -d -o rustrag -g rustrag -m 0700 /var/lib/rust-rag
 COPY --from=build /build/target/release/rust-rag /usr/local/bin/rust-rag
 COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/rust-rag/
+COPY --from=build /build/dependency-notices/ /usr/share/doc/rust-rag/dependency-notices/
 
 USER 10001:10001
 WORKDIR /var/lib/rust-rag

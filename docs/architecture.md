@@ -75,7 +75,7 @@ The demo uses deterministic fixture assertions, validates removal, and makes no 
 
 | Need | Starting point |
 | --- | --- |
-| Follow explicit links in notes | Integrate a link adapter that resolves local paths and preserves the link location. |
+| Follow explicit links in notes | Use [local vault-link traversal](setup.md#follow-links-in-an-obsidian-vault) for bounded, source-cited Obsidian wikilinks. |
 | Find named relationships across passages | Use the native typed extractor and local SQLite graph. |
 | Use a private managed topology service | Use the AWS reference and optional Neptune projection when qualified for the deployment. SQLite still owns evidence and authorization. |
 | Discover themes across a large corpus | Add community detection and hierarchy or summary artifacts with source, scope, and freshness. |

@@ -1,5 +1,6 @@
 const names = {
   overview: ["Overview", "Index health and evidence checks"],
+  search: ["Search", "Find and reopen passages in collections you can read"],
   coverage: ["Coverage", "Observe extraction and indexing by collection"],
   sources: ["Sources", "Reopen a current citation with your signed-in access"],
   activity: ["Activity", "Follow a request from retrieval to evidence"],
@@ -287,6 +288,8 @@ export function routeDiagram(steps) {
 export function mountOperations({ request, openReview, clearReviewedEvidence, diagnostics }) {
   const byId = id => document.getElementById(id);
   const selector = byId("ops-collection");
+  const selectorLabel = byId("ops-collection-label");
+  const searchButton = byId("ops-start-search");
   const connection = byId("ops-connection");
   const watch = byId("ops-watchlist");
   const refreshButton = byId("ops-refresh");
@@ -317,6 +320,9 @@ export function mountOperations({ request, openReview, clearReviewedEvidence, di
       if (button.dataset.view === key) button.setAttribute("aria-current", "page");
       else button.removeAttribute("aria-current");
     }
+    selector.hidden = key === "search";
+    selectorLabel.hidden = selector.hidden;
+    searchButton.hidden = key !== "overview";
     byId("ops-view-title").textContent = title;
     byId("ops-view-summary").textContent = summary;
     if (focus) byId("ops-view-title").focus();
@@ -506,6 +512,7 @@ export function mountOperations({ request, openReview, clearReviewedEvidence, di
     }
     if (!keys.length) selector.replaceChildren(new Option("No available collections", ""));
     selector.disabled = !keys.length;
+    diagnostics.setSearchScope(rows);
   }
 
   function forget() {
@@ -532,7 +539,9 @@ export function mountOperations({ request, openReview, clearReviewedEvidence, di
       }
       const previous = collection();
       const nextCollection = next.collections.find(row => row.name === selected);
-      if (snapshot && (snapshot.policy_version !== next.policy_version || (selected && !nextCollection) ||
+      const previousScopes = snapshot?.collections.map(row => row.name).sort().join(",");
+      const nextScopes = next.collections.map(row => row.name).sort().join(",");
+      if (snapshot && (snapshot.policy_version !== next.policy_version || previousScopes !== nextScopes ||
           Boolean(previous?.review) !== Boolean(nextCollection?.review))) {
         clearResults();
       }
@@ -549,9 +558,11 @@ export function mountOperations({ request, openReview, clearReviewedEvidence, di
       if (error.status === 401) {
         forget();
         setConnection("Operator status access is unavailable.", "warn");
+      } else if (error.code === "MAINTENANCE") {
+        forget();
+        setConnection("Maintenance · evidence reads paused", "warn");
       } else if (error.status === 403 || error.status === 404) {
-        if (snapshot) forget();
-        else updateOptions([]);
+        forget();
         autoPoll = false;
         setConnection("Operator status is unavailable at this gateway.", "neutral");
       } else {
@@ -566,6 +577,7 @@ export function mountOperations({ request, openReview, clearReviewedEvidence, di
   }
 
   for (const button of nav) button.addEventListener("click", () => showView(button.dataset.view));
+  searchButton.addEventListener("click", () => showView("search"));
   selector.addEventListener("change", () => choose(selector.value));
   refreshButton.addEventListener("click", refresh);
   document.addEventListener("visibilitychange", () => {

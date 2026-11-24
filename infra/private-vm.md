@@ -14,7 +14,7 @@ The image context allowlists Rust source and packaging files. For a release, rec
 
 ### Load a reviewed release archive
 
-Download `rust-rag-linux-amd64.tar`, `linux-image.json`, and `SHA256SUMS.txt` from the [v1.2.0 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.2.0). With Docker and `jq` installed, run this from their folder. Check both transferred files before loading. Different Docker image stores may report the reviewed image ID or its Linux amd64 config digest. [Verify package provenance](../docs/evidence.md#verify-package-provenance)
+Download `rust-rag-linux-amd64.tar`, `linux-image.json`, and `SHA256SUMS.txt` from the [v1.3.0 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.3.0). With Docker and `jq` installed, run this from their folder. Check both transferred files before loading. Different Docker image stores may report the reviewed image ID or its Linux amd64 config digest. [Verify package provenance](../docs/evidence.md#verify-package-provenance)
 
 ```sh
 archive=rust-rag-linux-amd64.tar
@@ -115,6 +115,36 @@ RUST_RAG_URL=https://127.0.0.1:8443
 
 After starting the container in the next section, verify the proxy with `curl --fail --silent --show-error "$RUST_RAG_URL/health"`. For each signed check, set `RUST_RAG_TOKEN=$(cat "$fixture/identity/reader.jwt")` using the file for the requested role. Use the `rust_rag_request` helper below so the token reaches curl through standard input. Keep shell tracing disabled. At the end run `nginx -p "$fixture/" -c "$fixture/nginx.conf" -s quit`, unset the token and CA variables, and remove the disposable fixture and mounted public key file. This path uses file-backed fixture keys. For deployment use the trusted issuer and private TLS certificate described above. [nginx command-line options](https://nginx.org/en/docs/switches.html) · [Proxy read timeout](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout)
 
+## Index a company Git repository
+
+Use a current native build with the `shared` feature and install Git on the service host. The packaged Linux image omits Git. For a container deployment, use a source-built derivative with distro-packaged Git on the service PATH and mount the mirror read-only.
+
+Use a dedicated bare mirror of one company documentation repository. A separate operator or job with source-specific read credentials fetches updates into the mirror. Keep its credential configuration outside Any RAG and give the service account read access to the mirror. Use a self-contained mirror and retain the history needed to advance the last indexed commit. For example, under the mirror operator account:
+
+```sh
+git clone --bare --single-branch --branch main https://git.internal.example/team/handbook.git /srv/anyrag/handbook.git
+git --git-dir=/srv/anyrag/handbook.git fetch --atomic origin refs/heads/main:refs/heads/main
+```
+
+In the service profile, set one entry in `sources` to:
+
+```json
+{
+  "kind": "git",
+  "root": "/srv/anyrag/handbook.git",
+  "reference": "refs/heads/main",
+  "prefix": "handbook"
+}
+```
+
+Use the same collection name in the signed Any RAG policy. Include that collection's readers and reviewers only if they can access every indexed path. Synchronize organization grants into the signed policy through the deployment's trusted identity process. The prefix selects a literal portion of the tree. Authorization applies to the whole collection. Use separate restricted repositories and collections when readers need different access. A tag under `refs/tags/` is also supported.
+
+Run `service-doctor`, refresh the mirror, then sync as an administrator. The service reads one commit and publishes the completed collection transaction at once. Queries use the last committed data during staging. An edit keeps the source ID for the same path and retires its old citation. A rename retires the old path and adds the new path. Reopen a citation using the same signed reader, then remove that subject's grant and confirm the citation and search result become unavailable.
+
+The connector reads Markdown and text plus PDF, DOCX and XLSX when their existing readers are enabled. Git symlinks and submodules are skipped. Use a folder import for resolved Git LFS data. The inventory permits 10,000 entries, and a sync reads up to 128 MiB of changed blobs with a 16 MiB file limit. The service checks the mirror ref immediately before publishing. If the ref has moved at that check, the mirror or a required blob is unavailable, or a size limit is reached, the collection keeps its last complete snapshot. A later ref advance is picked up by the next sync. Fix the mirror or reduce the selected scope before retrying. Rewound or divergent history requires an explicit new deployment state with a new full sync.
+
+Restore preserves the last accepted Git commit as a reconciliation floor. A backup retains its own indexed snapshot. Before reopening, sync the mirror at the accepted commit or a descendant so the service can rebuild current citations under current grants.
+
 ## Start and verify
 
 The host has a private TLS reverse proxy forwarding to loopback port `8787`. The backup directory is on separate protected storage and writable only by the deployment service. The following mounts match the example profile.
@@ -162,7 +192,7 @@ Sync admission returns HTTP 202. Poll the status endpoint until `sync.status` is
 
 ### Try Graph RAG with declared links
 
-On a disposable Linux host, [load the v1.2.0 image](#load-a-reviewed-release-archive) and [set up synthetic identity and local HTTPS](#synthetic-identity-and-tls-on-a-disposable-vm). Start from the [shared profile](shared.profile.example.json), use the `reference` folder source, and put the index, policy, backup and source directories on separate paths as in [Prepare trusted inputs](#prepare-trusted-inputs). For the fixture issuer, set `identity.jwks_file` and add the public-key directory mount below to the server and doctor commands. The private signing key and token files stay on the host.
+On a disposable Linux host, [load the v1.3.0 image](#load-a-reviewed-release-archive) and [set up synthetic identity and local HTTPS](#synthetic-identity-and-tls-on-a-disposable-vm). Start from the [shared profile](shared.profile.example.json), use the `reference` folder source, and put the index, policy, backup and source directories on separate paths as in [Prepare trusted inputs](#prepare-trusted-inputs). For the fixture issuer, set `identity.jwks_file` and add the public-key directory mount below to the server and doctor commands. The private signing key and token files stay on the host.
 
 ~~~sh
 --mount type=bind,src=/etc/rust-rag/public-keys,dst=/run/rust-rag/identity,readonly
@@ -296,7 +326,7 @@ Admin sync status includes per-collection graph and vector progress, plus any pr
 
 For a browser workflow, use the [shared Graph review dashboard](review/README.md) through a private gateway with per-user sign-in. You can also use the signed API from a terminal.
 
-Use the [v1.2.0 Linux image](#load-a-reviewed-release-archive) or a current source build with shared service support. Use a folder-backed collection with typed Graph RAG enabled. Merge the following keys into the collection grant in a new access policy version, preserving any other required read roles and endpoint grants. Give catalog write access only to people or systems authorized to declare current relationships. Each trusted path is an exact collection-relative filename. The issuer's reviewer subject maps to `maintenance-reviewer` in the top-level `subjects` policy map. The collection grants that role both read and review permissions. The `relations` endpoint grant enables prose extraction. Use an empty grant for [the declared-link walkthrough](#try-graph-rag-with-declared-links). [Rehearse signed review and recovery on synthetic data](../docs/rehearsal.md)
+Use the [v1.3.0 Linux image](#load-a-reviewed-release-archive) or a current source build with shared service support. Use a folder-backed collection with typed Graph RAG enabled. Merge the following keys into the collection grant in a new access policy version, preserving any other required read roles and endpoint grants. Give catalog write access only to people or systems authorized to declare current relationships. Each trusted path is an exact collection-relative filename. The issuer's reviewer subject maps to `maintenance-reviewer` in the top-level `subjects` policy map. The collection grants that role both read and review permissions. The `relations` endpoint grant enables prose extraction. Use an empty grant for [the declared-link walkthrough](#try-graph-rag-with-declared-links). [Rehearse signed review and recovery on synthetic data](../docs/rehearsal.md)
 
 ```json
 {
@@ -395,7 +425,7 @@ In `POST /v1/relationship`, an entity alias can appear in `root` or `target`, an
 
 ### Confirm a relationship interpretation
 
-On the v1.2.0 Linux image or a source build with `shared`, an application or coding agent can propose an explicit interpretation at `POST /v1/relationship/guided`. Send a `request` object using the typed contract, with one terminal predicate and exact ordered `path_predicates`. The optional `via` array contains one entry per intermediate position, in order. Use an exact entity name for a named intermediate and `null` for a position the request leaves open.
+On the v1.3.0 Linux image or a source build with `shared`, an application or coding agent can propose an explicit interpretation at `POST /v1/relationship/guided`. Send a `request` object using the typed contract, with one terminal predicate and exact ordered `path_predicates`. The optional `via` array contains one entry per intermediate position, in order. Use an exact entity name for a named intermediate and `null` for a position the request leaves open.
 
 ```json
 {
@@ -427,7 +457,7 @@ Use the same cutover when adding a collection or enabling Graph on an existing c
 
 To roll back, close the client listener or remove the service from its proxy upstream. Start the previous image with its compatible profile and state. Restore its verified backup, run a complete sync against current sources and policy, and explicitly reopen. Check current citations, deleted sources, and denied identities before restoring client traffic. Keep the previous and new indexes separate throughout the cutover.
 
-When moving from v1.1.3 to v1.2.0, keep a verified v1.1.3 backup and its image before admitting new guided review decisions. Roll back with that backup and the previous image. Leave state written by the newer service with the new version.
+Before upgrading, keep a verified backup and the image that created it. Restore that backup with the previous image to roll back. Keep state written by the newer service with the newer version. To use native Word and Excel table completion on an existing index, rebuild into separate state so the index can record table coordinates at ingestion.
 
 The restored service rebuilds work it needs from current sources. Budget time and provider calls for fresh graph extraction or embeddings, since the previous index does not reuse enrichment produced only by the new image. Time the sync and first verified citation on a representative corpus before scheduling the cutover.
 

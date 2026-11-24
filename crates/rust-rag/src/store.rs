@@ -524,6 +524,7 @@ struct LocatedChunk {
     anchor: Option<String>,
     quote: String,
     ocr: Option<(Value, String)>,
+    flat_table: bool,
 }
 
 fn text_chunks(
@@ -538,6 +539,7 @@ fn text_chunks(
         anchor: None,
         quote: quote.to_owned(),
         ocr: None,
+        flat_table: false,
     })
 }
 
@@ -550,6 +552,8 @@ fn parse(raw: &[u8], pdf: bool, docx: bool, xlsx: bool) -> Result<Vec<LocatedChu
             for cell in crate::xlsx::extract(raw)? {
                 chunks.extend(text_chunks(&cell.text, None, offset).map(|mut chunk| {
                     chunk.anchor = Some(cell.anchor.clone());
+                    chunk.flat_table = cell.flat_table
+                        && chunk.end - chunk.start == cell.text.trim().chars().count();
                     chunk
                 }));
                 offset += cell.text.chars().count() + 2;
@@ -567,6 +571,8 @@ fn parse(raw: &[u8], pdf: bool, docx: bool, xlsx: bool) -> Result<Vec<LocatedChu
             for paragraph in crate::docx::extract(raw)? {
                 chunks.extend(text_chunks(&paragraph.text, None, offset).map(|mut chunk| {
                     chunk.anchor = Some(paragraph.anchor.clone());
+                    chunk.flat_table = paragraph.flat_table
+                        && chunk.end - chunk.start == paragraph.text.trim().chars().count();
                     chunk
                 }));
                 offset += paragraph.text.chars().count() + 2;
@@ -651,6 +657,16 @@ impl IngestState {
         } else {
             "INSERT INTO passages(rowid,text) VALUES (?1,?2)"
         })?;
+        let mut mark_flat = if chunks.iter().any(|chunk| chunk.flat_table) {
+            db.execute_batch(
+                "CREATE TABLE IF NOT EXISTS native_table_cells (
+                    chunk_id TEXT PRIMARY KEY REFERENCES chunks(chunk_id) ON DELETE CASCADE
+                 ) WITHOUT ROWID",
+            )?;
+            Some(db.prepare("INSERT INTO native_table_cells VALUES (?1)")?)
+        } else {
+            None
+        };
         for LocatedChunk {
             start,
             end,
@@ -658,6 +674,7 @@ impl IngestState {
             anchor,
             quote,
             ocr,
+            flat_table,
         } in chunks
         {
             let identity = if let Some((provenance, _)) = &ocr {
@@ -693,6 +710,9 @@ impl IngestState {
                     provenance
                 ])?;
                 insert_fts.execute(params![db.last_insert_rowid(), quote, terms])?;
+                if flat_table && let Some(mark) = mark_flat.as_mut() {
+                    mark.execute([&chunk_id])?;
+                }
                 continue;
             } else if self.anchors {
                 insert.execute(params![
@@ -715,6 +735,9 @@ impl IngestState {
                 insert.execute(params![chunk_id, id, start as i64, end as i64])?;
             }
             insert_fts.execute(params![db.last_insert_rowid(), quote])?;
+            if flat_table && let Some(mark) = mark_flat.as_mut() {
+                mark.execute([&chunk_id])?;
+            }
         }
         Ok(())
     }
@@ -730,7 +753,7 @@ fn require_root(db: &Connection, root: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "aws")]
+#[cfg(feature = "shared")]
 fn retire_missing(db: &Connection, present: &HashSet<String>) -> Result<usize> {
     let mut sources = db.prepare("SELECT source_id FROM sources")?;
     let missing = sources
@@ -995,6 +1018,7 @@ fn process_local(
                             anchor: None,
                             quote: passage.text,
                             ocr: Some((passage.provenance, passage.table_terms)),
+                            flat_table: false,
                         })
                         .collect()
                 })
@@ -1397,6 +1421,192 @@ pub(crate) fn reset_local_ingest_progress(db: &Connection) -> Result<()> {
     db.execute_batch(LOCAL_PROGRESS)?;
     db.execute("DELETE FROM local_ingest_progress", [])?;
     Ok(())
+}
+
+#[cfg(feature = "shared")]
+fn git_sync_floors(db: &Connection) -> Result<Vec<String>> {
+    let mut floors = Vec::new();
+    for (table, query) in [
+        (
+            "git_sync_head",
+            "SELECT commit_id FROM git_sync_head WHERE id=1",
+        ),
+        (
+            "git_restore_floors",
+            "SELECT commit_id FROM git_restore_floors ORDER BY commit_id LIMIT 65",
+        ),
+    ] {
+        let exists: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?1)",
+            [table],
+            |row| row.get(0),
+        )?;
+        if exists {
+            let mut statement = db.prepare(query)?;
+            let commits = statement.query_map([], |row| row.get::<_, String>(0))?;
+            for commit in commits {
+                floors.push(commit?);
+            }
+        }
+    }
+    floors.sort_unstable();
+    floors.dedup();
+    ensure!(
+        floors.len() <= 64,
+        "Too many unreconciled Git restore floors."
+    );
+    Ok(floors)
+}
+
+#[cfg(feature = "shared")]
+pub(crate) fn retain_git_restore_floors(live: &Connection, saved: &mut Connection) -> Result<()> {
+    let live_floors = git_sync_floors(live)?;
+    if live_floors.is_empty() {
+        return Ok(());
+    }
+    // The saved head and blob IDs describe the saved passages. Preserve later
+    // accepted commits separately so a sync at that commit still reloads them.
+    let tx = saved.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS git_restore_floors (
+             commit_id TEXT PRIMARY KEY NOT NULL
+         );",
+    )?;
+    for commit in live_floors {
+        tx.execute(
+            "INSERT OR IGNORE INTO git_restore_floors VALUES(?1)",
+            [commit],
+        )?;
+    }
+    let _ = git_sync_floors(&tx)?;
+    tx.commit()?;
+    Ok(())
+}
+
+#[cfg(feature = "shared")]
+pub(crate) fn ingest_git(
+    db: &mut Connection,
+    source: &crate::git_source::GitSource,
+    include_pdf: bool,
+    check_policy: &impl Fn() -> Result<()>,
+    publish_gate: Option<&std::sync::RwLock<()>>,
+) -> Result<Value> {
+    use crate::git_source::{Format, next_blob};
+    if include_pdf {
+        ensure!(
+            cfg!(feature = "pdf"),
+            "Build with the pdf feature to read PDF files."
+        );
+        require_advanced(db)?;
+    }
+    let snapshot = source.snapshot()?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    require_root(&tx, source.identity())?;
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS git_sync_head (
+             id INTEGER PRIMARY KEY CHECK (id = 1),
+             commit_id TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS git_sync_blobs (
+             source_id TEXT PRIMARY KEY NOT NULL REFERENCES sources ON DELETE CASCADE,
+             object_id TEXT NOT NULL
+         );",
+    )?;
+    for floor in git_sync_floors(&tx)? {
+        source.require_forward(&floor, &snapshot.commit)?;
+    }
+
+    let mut present = HashSet::new();
+    let mut changed = Vec::new();
+    let mut unchanged = 0;
+    let mut skipped_pdfs = 0;
+    for entry in &snapshot.entries {
+        match entry.format {
+            Format::Pdf if !include_pdf => {
+                skipped_pdfs += 1;
+                continue;
+            }
+            Format::Docx if !cfg!(feature = "docx") => continue,
+            Format::Xlsx if !cfg!(feature = "xlsx") => continue,
+            _ => {}
+        }
+        let uri = source.uri(&entry.path);
+        let id = digest(uri.as_bytes());
+        present.insert(id.clone());
+        let old: Option<(String, Option<String>)> = tx
+            .query_row(
+                "SELECT s.source_hash,g.object_id FROM sources s LEFT JOIN git_sync_blobs g USING(source_id)
+                 WHERE s.source_id=?1",
+                [&id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let (hash, object) = old.unzip();
+        if object.flatten().as_deref() == Some(&entry.object) {
+            unchanged += 1;
+        } else {
+            changed.push((entry, id, uri, hash));
+        }
+    }
+    let data = source.read_changed(&changed.iter().map(|row| row.0).collect::<Vec<_>>())?;
+    let mut stream = std::io::Cursor::new(data.as_slice());
+    let mut state = IngestState::new(&tx)?;
+    for (entry, id, uri, old) in &changed {
+        let raw = next_blob(&mut stream, entry)?;
+        let hash = digest(raw);
+        if old.as_ref() != Some(&hash) {
+            let pdf = matches!(entry.format, Format::Pdf);
+            let chunks = parse(
+                raw,
+                pdf,
+                matches!(entry.format, Format::Docx),
+                matches!(entry.format, Format::Xlsx),
+            )?;
+            ensure!(
+                !pdf || !chunks.is_empty(),
+                "A Git PDF has no readable text."
+            );
+            state.publish(&tx, id, uri, &hash, old.is_some(), chunks)?;
+        }
+        tx.execute(
+            "INSERT INTO git_sync_blobs(source_id,object_id) VALUES(?1,?2)
+             ON CONFLICT(source_id) DO UPDATE SET object_id=excluded.object_id",
+            params![id, entry.object],
+        )?;
+    }
+    ensure!(
+        stream.position() == data.len() as u64,
+        "Unexpected Git blob data."
+    );
+    let removed = retire_missing(&tx, &present)?;
+    tx.execute(
+        "INSERT INTO git_sync_head VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET commit_id=excluded.commit_id",
+        [&snapshot.commit],
+    )?;
+    // The new, committed indexed snapshot includes every retained floor.
+    tx.execute_batch("DROP TABLE IF EXISTS git_restore_floors;")?;
+    tx.execute(
+        "UPDATE settings SET root=?1 WHERE id=1",
+        [source.identity()],
+    )?;
+    let _visibility = publish_gate
+        .map(|gate| {
+            gate.write()
+                .map_err(|_| anyhow::anyhow!("Source publish lock unavailable."))
+        })
+        .transpose()?;
+    check_policy()?;
+    ensure!(
+        source.head()? == snapshot.commit,
+        "The Git ref changed during synchronization. Retry the complete snapshot."
+    );
+    tx.commit()?;
+    Ok(json!({
+        "schema_version": 1, "updated_sources": changed.len(), "unchanged_sources": unchanged,
+        "removed_sources": removed, "failures": [], "sync_blocked": false,
+        "inventory_complete": true, "scanned_entries": snapshot.scanned,
+        "skipped_links_or_placeholders": snapshot.skipped_links, "skipped_pdfs": skipped_pdfs,
+    }))
 }
 
 #[cfg(feature = "aws")]
@@ -2097,7 +2307,7 @@ fn query_impl(
             evidence.push(item);
         }
     }
-    let graph_coverage = if use_graph {
+    let (graph_coverage, graph_added) = if use_graph {
         let tail = evidence.split_off(evidence.len().min(limit.div_ceil(2)));
         let graph_limit = (limit - evidence.len()).min(32);
         let (neighbors, coverage) = if let Some(lookup) = lookup {
@@ -2105,6 +2315,7 @@ fn query_impl(
         } else {
             graph::expand(&tx, &evidence, question, graph_limit)?
         };
+        let added = !neighbors.is_empty();
         evidence.extend(neighbors);
         let used: HashSet<_> = evidence
             .iter()
@@ -2120,10 +2331,45 @@ fn query_impl(
                 })
                 .take(remaining),
         );
-        Some(coverage)
+        (Some(coverage), added)
     } else {
-        None
+        (None, false)
     };
+    // Complete a flat-table proof only when graph traversal added no evidence.
+    // The three original passages share the same result budget.
+    if !graph_added
+        && mode != Mode::Vector
+        && limit >= 3
+        && !evidence
+            .iter()
+            .any(|item| item["ranking"]["current_revision_match"] == true)
+        && let Some(found) = crate::native_table::find(&tx, question, &evidence)?
+    {
+        let mut select = passage_by_chunk(&tx)?;
+        let mut verified = Vec::with_capacity(limit);
+        let roles = [
+            (found.chunk_id.as_str(), "value"),
+            (found.header.chunk_id.as_str(), "column_header"),
+            (found.row.chunk_id.as_str(), "row_label"),
+        ];
+        for (id, role) in roles {
+            let mut passage = select.query_row([id], |row| passage_evidence(row, id))?;
+            passage["match_status"] = json!("evidence");
+            passage["ranking"] = json!({"method":"native_table"});
+            passage["table_support"] = json!({
+                "role":role, "header":found.header.anchor, "row_label":found.row.anchor
+            });
+            verified.push(passage);
+        }
+        verified.extend(
+            evidence
+                .into_iter()
+                .filter(|item| !roles.iter().any(|(id, _)| item["chunk_id"] == *id))
+                .take(limit - verified.len()),
+        );
+        evidence = verified;
+        strong = true;
+    }
     let vector_coverage = if mode != Mode::Lexical {
         let (chunks, indexed): (i64, i64) = tx.query_row(
             "SELECT (SELECT count(*) FROM chunks), (SELECT count(*) FROM chunk_vectors)",
@@ -2209,6 +2455,61 @@ pub fn remove(db: &mut Connection, id: Option<&str>) -> Result<usize> {
 
 #[cfg(test)]
 mod local_ingest_tests {
+    #[cfg(feature = "shared")]
+    #[test]
+    fn graph_without_neighbors_keeps_the_complete_native_table_proof() -> Result<()> {
+        let scratch = tempfile::tempdir()?;
+        let state = files::state_directory(scratch.path(), true)?;
+        let mut db = open(&state, true)?;
+        upgrade(&mut db, &state)?;
+        let mut chunks = Vec::new();
+        for (n, (anchor, text)) in [
+            ("A1", "Station"),
+            ("B1", "Recorded pressure"),
+            ("A2", "Polar manifold"),
+            ("B2", "81 kPa"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            chunks.extend(text_chunks(text, None, n * 40).map(|mut chunk| {
+                chunk.anchor = Some(format!("sheet:Operations!{anchor}"));
+                chunk.flat_table = true;
+                chunk
+            }));
+        }
+        let tx = db.transaction()?;
+        IngestState::new(&tx)?.publish(
+            &tx,
+            &"a".repeat(64),
+            "test-grid.xlsx",
+            &"b".repeat(64),
+            false,
+            chunks,
+        )?;
+        tx.commit()?;
+
+        for graph in [false, true] {
+            let output = query(
+                &mut db,
+                "Polar manifold recorded pressure",
+                3,
+                graph,
+                Mode::Lexical,
+                None,
+            )?;
+            let hits = output["evidence"]
+                .as_array()
+                .context("Missing table proof.")?;
+            assert_eq!(hits.len(), 3);
+            assert_eq!(hits[0]["anchor"], "sheet:Operations!B2");
+            assert_eq!(hits[0]["text"], "81 kPa");
+            assert_eq!(hits[1]["anchor"], "sheet:Operations!B1");
+            assert_eq!(hits[2]["anchor"], "sheet:Operations!A2");
+        }
+        Ok(())
+    }
+
     use super::*;
     use std::fs::FileTimes;
 
@@ -2713,6 +3014,7 @@ mod local_ingest_tests {
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         IngestState::new(&tx)?.publish(&tx, &source, "/synthetic/register.pdf", &hash, false,
             vec![LocatedChunk {
+                flat_table: false,
                 start: 20, end: 26, page: Some(2), anchor: None, quote: "20 kPa".into(),
                 ocr: Some((json!({"rendition_id":digest(b"rendition"), "extraction_fingerprint":fingerprint,
                     "regions":[{"start":20,"end":26}]}), "North pressure".into())),

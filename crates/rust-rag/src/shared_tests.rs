@@ -52,6 +52,275 @@ static EXPIRED: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+fn git_fixture(path: &Path, args: &[&str]) -> String {
+    let result = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args([
+            "-c",
+            "user.name=Synthetic Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "git fixture: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8(result.stdout).unwrap().trim().to_owned()
+}
+
+#[test]
+fn signed_git_mirror_preserves_scope_and_complete_snapshots() {
+    let fixture = Fixture::new(None, false);
+    let work = fixture.root.path().join("work");
+    let mirror = fixture.root.path().join("mirror.git");
+    fs::create_dir(&work).unwrap();
+    fs::create_dir(&mirror).unwrap();
+    git_fixture(&mirror, &["init", "--bare", "--initial-branch=main"]);
+    git_fixture(&mirror, &["config", "receive.unpackLimit", "1000"]);
+    git_fixture(&work, &["init", "--initial-branch=main"]);
+    fs::create_dir(work.join("manual")).unwrap();
+    fs::write(work.join("manual/part.md"), "Cedar rotor torque is 21 N m.").unwrap();
+    fs::write(
+        work.join("manual/retired.md"),
+        "Only the sapwood tray is supported.",
+    )
+    .unwrap();
+    fs::write(
+        work.join("unrelated.md"),
+        "AmberRaptor42 is outside the selected folder.",
+    )
+    .unwrap();
+    git_fixture(&work, &["add", "."]);
+    let link = git_fixture(&work, &["rev-parse", ":manual/part.md"]);
+    git_fixture(
+        &work,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("120000,{link},manual/link.md"),
+        ],
+    );
+    git_fixture(&work, &["commit", "-m", "Synthetic initial snapshot"]);
+    git_fixture(
+        &work,
+        &[
+            "push",
+            mirror.to_str().unwrap(),
+            "refs/heads/main:refs/heads/main",
+        ],
+    );
+    let first = git_fixture(&mirror, &["rev-parse", "refs/heads/main"]);
+
+    let mut profile: Value = serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+    profile["sources"]["open"] = json!({
+        "kind":"git","root":mirror,"reference":"refs/heads/main","prefix":"manual"
+    });
+    fs::write(&fixture.profile, profile.to_string()).unwrap();
+    let service = fixture.open();
+    let (backup_id, second, old, current, removed) = with_http(&service, |address| {
+        let start = || {
+            api(
+                address,
+                Some(ADMIN.as_str()),
+                "/v1/admin/sync",
+                Some(json!({})),
+            )
+        };
+        let finish = || {
+            assert_eq!(start().0, 202);
+            await_sync(address)
+        };
+        let first_sync = finish();
+        assert_eq!(first_sync["inventory_reconciled"], true);
+        let saved = api(
+            address,
+            Some(ADMIN.as_str()),
+            "/v1/admin/backup",
+            Some(json!({})),
+        );
+        assert_eq!(saved.0, 200);
+        let backup_id = saved.1["backup_id"].as_str().unwrap().to_owned();
+        let search = |question| query(address, ALICE.as_str(), question, false);
+        let hit = |result: Value, path: &str| {
+            result["evidence"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["path"] == path)
+                .unwrap()
+                .clone()
+        };
+        let old = hit(search("Cedar rotor torque"), "manual/part.md");
+        let removed = hit(search("sapwood tray"), "manual/retired.md");
+        let reopen = |item: &Value, token: &str| {
+            let endpoint = format!("/v1/evidence/{}", item["chunk_id"].as_str().unwrap());
+            api(address, Some(token), &endpoint, None)
+        };
+        assert_eq!(
+            reopen(&old, ALICE.as_str()).1["evidence"]["text"],
+            "Cedar rotor torque is 21 N m."
+        );
+        assert_eq!(reopen(&old, BOB.as_str()).0, 404);
+        assert!(
+            search("AmberRaptor42")["evidence"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            !search("Cedar rotor torque")
+                .to_string()
+                .contains("manual/link.md")
+        );
+        assert_eq!(finish()["updated"], 0);
+
+        fs::write(work.join("manual/part.md"), "Cedar rotor torque is 29 N m.").unwrap();
+        fs::remove_file(work.join("manual/retired.md")).unwrap();
+        fs::write(work.join("manual/new.md"), "The cedar seal is neoprene.").unwrap();
+        git_fixture(
+            &work,
+            &[
+                "add",
+                "manual/part.md",
+                "manual/retired.md",
+                "manual/new.md",
+            ],
+        );
+        git_fixture(
+            &work,
+            &["commit", "-m", "Synthetic edit, addition and deletion"],
+        );
+        git_fixture(
+            &work,
+            &[
+                "push",
+                mirror.to_str().unwrap(),
+                "refs/heads/main:refs/heads/main",
+            ],
+        );
+        let second = git_fixture(&mirror, &["rev-parse", "refs/heads/main"]);
+
+        // A head that is unavailable cannot authorize any deletion.
+        git_fixture(&mirror, &["update-ref", "-d", "refs/heads/main"]);
+        assert_ne!(finish()["inventory_reconciled"], true);
+        assert_eq!(reopen(&old, ALICE.as_str()).0, 200);
+        assert_eq!(reopen(&removed, ALICE.as_str()).0, 200);
+        git_fixture(&mirror, &["update-ref", "refs/heads/main", &second]);
+        // A ref change at the final publication boundary leaves the prior snapshot readable.
+        let Source::Git(source) = &service.sources["open"] else {
+            panic!("Expected a Git collection");
+        };
+        let mut db = service.open_collection("open", false).unwrap();
+        let changed_at_publish = store::ingest_git(
+            &mut db,
+            source,
+            false,
+            &|| {
+                git_fixture(&mirror, &["update-ref", "refs/heads/main", &first, &second]);
+                Ok(())
+            },
+            Some(&service.gate),
+        );
+        let error = changed_at_publish.unwrap_err();
+        assert!(error.to_string().contains("The Git ref changed"));
+        drop(db);
+        assert_eq!(reopen(&old, ALICE.as_str()).0, 200);
+        assert_eq!(reopen(&removed, ALICE.as_str()).0, 200);
+        git_fixture(&mirror, &["update-ref", "refs/heads/main", &second, &first]);
+        let object = git_fixture(&mirror, &["rev-parse", "refs/heads/main:manual/part.md"]);
+        let loose = mirror.join("objects").join(&object[..2]).join(&object[2..]);
+        let unavailable = fixture.root.path().join("unavailable-fixture-blob");
+        fs::rename(&loose, &unavailable).unwrap();
+        assert_ne!(finish()["inventory_reconciled"], true);
+        assert_eq!(reopen(&old, ALICE.as_str()).0, 200);
+        assert_eq!(reopen(&removed, ALICE.as_str()).0, 200);
+        fs::rename(&unavailable, &loose).unwrap();
+        assert_eq!(finish()["inventory_reconciled"], true);
+        let current = hit(search("Cedar rotor torque"), "manual/part.md");
+        assert_eq!(old["source_id"], current["source_id"]);
+        assert_ne!(old["revision"], current["revision"]);
+        assert_eq!(
+            reopen(&current, ALICE.as_str()).1["evidence"]["text"],
+            "Cedar rotor torque is 29 N m."
+        );
+        assert_eq!(reopen(&old, ALICE.as_str()).0, 404);
+        assert_eq!(reopen(&removed, ALICE.as_str()).0, 404);
+        let _ = hit(search("neoprene"), "manual/new.md");
+
+        git_fixture(&mirror, &["update-ref", "refs/heads/main", &first]);
+        assert_ne!(finish()["inventory_reconciled"], true);
+        assert_eq!(reopen(&current, ALICE.as_str()).0, 200);
+        assert_eq!(reopen(&removed, ALICE.as_str()).0, 404);
+        git_fixture(&mirror, &["update-ref", "refs/heads/main", &second]);
+        assert_eq!(finish()["updated"], 0);
+
+        fixture.policy(2, false, false, false);
+        assert_eq!(reopen(&current, ALICE.as_str()).0, 404);
+        let denied = api(
+            address,
+            Some(ALICE.as_str()),
+            "/v1/query",
+            Some(json!({"question":"Cedar rotor torque","graph":false})),
+        );
+        assert_eq!(denied.0, 200);
+        assert_eq!(denied.1["evidence"], json!([]));
+        assert!(!denied.1.to_string().contains("29 N m"));
+        assert_eq!(reopen(&current, BOB.as_str()).0, 404);
+        assert_eq!(
+            api(
+                address,
+                Some(ADMIN.as_str()),
+                "/v1/admin/restore",
+                Some(json!({"backup_id":backup_id})),
+            )
+            .0,
+            200
+        );
+        (backup_id, second, old, current, removed)
+    });
+    drop(service);
+
+    git_fixture(&mirror, &["update-ref", "refs/heads/main", &first, &second]);
+    let restarted = fixture.open();
+    with_http(&restarted, |address| {
+        let admin = |path, body| api(address, Some(ADMIN.as_str()), path, Some(body));
+        let cite = |item: &Value| {
+            let path = format!("/v1/evidence/{}", item["chunk_id"].as_str().unwrap());
+            api(address, Some(ALICE.as_str()), &path, None)
+        };
+        assert_eq!(cite(&old).0, 503);
+        assert_ne!(sync_http(address)["inventory_reconciled"], true);
+        assert_eq!(admin("/v1/admin/reopen", json!({})).0, 409);
+        assert_eq!(
+            admin("/v1/admin/restore", json!({"backup_id":backup_id})).0,
+            200
+        );
+        assert_ne!(sync_http(address)["inventory_reconciled"], true);
+        assert_eq!(admin("/v1/admin/reopen", json!({})).0, 409);
+        assert_eq!(cite(&old).0, 503);
+
+        git_fixture(&mirror, &["update-ref", "refs/heads/main", &second, &first]);
+        assert_eq!(sync_http(address)["inventory_reconciled"], true);
+        assert_eq!(admin("/v1/admin/reopen", json!({})).0, 200);
+        assert_eq!(cite(&current).0, 404);
+        fixture.policy(3, true, false, false);
+        assert_eq!(
+            cite(&current).1["evidence"]["text"],
+            "Cedar rotor torque is 29 N m."
+        );
+        assert_eq!(cite(&old).0, 404);
+        assert_eq!(cite(&removed).0, 404);
+    });
+}
+
 struct Fixture {
     root: tempfile::TempDir,
     profile: PathBuf,
@@ -266,6 +535,113 @@ fn await_sync(address: &str) -> Value {
         assert!(Instant::now() < end);
         thread::sleep(Duration::from_millis(20));
     }
+}
+
+#[test]
+fn signed_inventory_pages_only_current_authorized_source_metadata() {
+    let fixture = Fixture::new(None, false);
+    let service = fixture.open();
+    with_http(&service, |address| {
+        let list = |token, request| api(address, token, "/v1/sources/list", Some(request));
+        let req = || json!({"collection":"open","limit":1});
+        let alice = Some(ALICE.as_str());
+        assert_eq!(list(None, req()).0, 401);
+        let (status, empty) = list(alice, req());
+        assert_eq!(status, 200, "{empty}");
+        assert_eq!(empty["total_sources"], 0);
+        assert_eq!(empty["sources"], json!([]));
+        assert_eq!(empty["next_cursor"], Value::Null);
+        sync_http(address);
+
+        let (status, first) = list(alice, req());
+        assert_eq!(status, 200, "{first}");
+        assert_eq!(first["total_sources"], 2);
+        let cursor = first["next_cursor"].as_str().unwrap();
+        let page = |cursor: &str| json!({"collection":"open","limit":1,"cursor":cursor});
+        let (status, second) = list(alice, page(cursor));
+        assert_eq!(status, 200, "{second}");
+        assert_eq!(second["total_sources"], 2);
+        assert_eq!(second["next_cursor"], Value::Null);
+        let complete = list(alice, json!({"collection":"open"})).1;
+        assert_eq!(
+            complete["sources"],
+            json!([first["sources"][0], second["sources"][0]])
+        );
+        let mut paths = Vec::new();
+        for row in complete["sources"].as_array().unwrap() {
+            assert_eq!(row.as_object().unwrap().len(), 3);
+            assert!(hex_id(row["source_id"].as_str().unwrap(), 64));
+            assert!(hex_id(row["revision"].as_str().unwrap(), 64));
+            paths.push(row["path"].as_str().unwrap());
+        }
+        paths.sort_unstable();
+        assert_eq!(paths, ["hop.md", "seed.md"]);
+        assert!(!complete.to_string().contains(PRIVATE_CANARY));
+        assert_eq!(
+            list(alice, json!({"collection":"restricted"})),
+            list(alice, json!({"collection":"absent"}))
+        );
+        assert_eq!(list(alice, json!({"collection":"restricted"})).0, 404);
+        assert_eq!(list(Some(ADMIN.as_str()), req()).0, 404);
+        for invalid in [
+            json!({"collection":"open","limit":0}),
+            json!({"collection":"open","limit":101}),
+            json!({"collection":"../open"}),
+            json!({"collection":"open","include_text":true}),
+            page("invalid cursor"),
+        ] {
+            assert_eq!(list(alice, invalid).0, 400);
+        }
+        let mut tampered = cursor.to_owned();
+        tampered.replace_range(68..69, if &cursor[68..69] == "A" { "B" } else { "A" });
+        assert_eq!(list(alice, page(&tampered)).0, 409);
+
+        let root = fixture.root.path();
+        fs::write(
+            root.join("restricted/secret.md"),
+            format!("New {PRIVATE_CANARY}"),
+        )
+        .unwrap();
+        sync_http(address);
+        assert_eq!(list(alice, page(cursor)), (200, second));
+        fs::write(
+            root.join("open/seed.md"),
+            "Lyra beacon is on a new revision.",
+        )
+        .unwrap();
+        sync_http(address);
+        let stale = list(alice, page(cursor));
+        assert_eq!(stale.0, 409);
+        assert_eq!(stale.1["error"]["code"], "INVENTORY_CHANGED");
+        let amended = list(alice, req()).1;
+        let edit_cursor = amended["next_cursor"].as_str().unwrap();
+        fixture.write_policy(json!({"schema_version":1,"version":2,"issuer":ISSUER,
+            "administrators":["admin"],"subjects":{},"collections":{
+                "open":{"subjects":["alice","bob"]},"restricted":{"subjects":["bob"]}}}));
+        assert_eq!(list(alice, page(edit_cursor)).0, 409);
+        let granted = list(alice, req()).1;
+        let current_cursor = granted["next_cursor"].as_str().unwrap();
+        assert_eq!(list(Some(BOB.as_str()), req()).0, 200);
+        assert_eq!(list(Some(BOB.as_str()), page(current_cursor)).0, 409);
+        fs::remove_file(root.join("open/hop.md")).unwrap();
+        sync_http(address);
+        assert_eq!(list(alice, page(current_cursor)).0, 409);
+        let current = list(alice, req()).1;
+        assert_eq!(current["total_sources"], 1);
+        assert_eq!(current["sources"][0]["path"], "seed.md");
+        let previous = complete["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["path"] == "seed.md")
+            .unwrap();
+        assert_eq!(current["sources"][0]["source_id"], previous["source_id"]);
+        assert_ne!(current["sources"][0]["revision"], previous["revision"]);
+
+        fixture.policy(3, false, false, false);
+        assert_eq!(list(alice, page(current_cursor)).0, 404);
+        assert_eq!(list(alice, req()).0, 404);
+    });
 }
 
 #[test]
@@ -1666,7 +2042,13 @@ fn slow_sync_serves_committed_citations_and_replay_keeps_one_revision() {
     let service = fixture.open();
     let mut db = service.open_collection("open", false).unwrap();
     service.sources["open"]
-        .ingest(&mut db, false, &mut store::OcrBatch::new(None))
+        .ingest(
+            &mut db,
+            false,
+            &mut store::OcrBatch::new(None),
+            &|| Ok(()),
+            None,
+        )
         .unwrap();
     fs::write(
         fixture.root.path().join("open/seed.md"),
@@ -1920,7 +2302,13 @@ fn provider_faults_return_scoped_fallback_and_redact_credentials() {
     for (name, source) in &service.sources {
         let mut db = service.open_collection(name, false).unwrap();
         source
-            .ingest(&mut db, false, &mut store::OcrBatch::new(None))
+            .ingest(
+                &mut db,
+                false,
+                &mut store::OcrBatch::new(None),
+                &|| Ok(()),
+                None,
+            )
             .unwrap();
     }
     let receive = || model.recv_timeout(Duration::from_secs(3)).unwrap().unwrap();
@@ -2376,7 +2764,13 @@ fn revoke_destination_between_embedding_and_answer() {
     for (name, source) in &service.sources {
         let mut db = service.open_collection(name, false).unwrap();
         source
-            .ingest(&mut db, false, &mut store::OcrBatch::new(None))
+            .ingest(
+                &mut db,
+                false,
+                &mut store::OcrBatch::new(None),
+                &|| Ok(()),
+                None,
+            )
             .unwrap();
     }
     with_http(&service, |address| {

@@ -23,11 +23,19 @@ Replace the sample question with one about your files. Copy the `chunk_id` and `
 
 ### Search a private team collection
 
-Use the v1.2.0 Linux image or a source build with `shared`. A private deployment needs an identity issuer, HTTPS, and an administrator to configure a source folder and collection grants. The administrator runs `service-doctor`, starts the service and waits for the first sync. The reader asks the question at `POST /v1/query` and reopens the result at `GET /v1/evidence/{chunk_id}` under the same signed identity. [Private service runbook](../infra/private-vm.md#prepare-trusted-inputs) · [Try it with a synthetic identity](../infra/private-vm.md#synthetic-identity-and-tls-on-a-disposable-vm)
+Use the v1.3.0 Linux image or a source build with `shared`. A private deployment needs an identity issuer, HTTPS, and an administrator to configure a source folder and collection grants. The administrator runs `service-doctor`, starts the service and waits for the first sync. The reader asks the question at `POST /v1/query` and reopens the result at `GET /v1/evidence/{chunk_id}` under the same signed identity. The [dashboard Search view](../infra/review/README.md#search-authorized-documents) and [signed MCP search](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) use the same grants and evidence. [Private service runbook](../infra/private-vm.md#prepare-trusted-inputs) · [Try it with a synthetic identity](../infra/private-vm.md#synthetic-identity-and-tls-on-a-disposable-vm)
 
 ### Confirm a relationship across files
 
-Start with the v1.2.0 Linux image and [walk through Graph RAG with declared links](../infra/private-vm.md#try-graph-rag-with-declared-links). The walkthrough uses two Markdown files, a signed reviewer and two readers. It works without a model server. A guided lookup previews the start entity, ordered relations and applicable setting. The reader confirms the interpretation and reopens the evidence for each hop. Add [model extraction](../infra/private-vm.md#enable-company-graph-rag) when links need to come from prose. [Dashboard](../infra/review/README.md#confirm-a-read-only-lookup) · [Shared MCP](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) · [Upgrade from v1.1.3](../infra/private-vm.md#upgrade-or-roll-back-the-service)
+Start with the v1.3.0 Linux image and [walk through Graph RAG with declared links](../infra/private-vm.md#try-graph-rag-with-declared-links). The walkthrough uses two Markdown files, a signed reviewer and two readers. It works without a model server. A guided lookup previews the start entity, ordered relations and applicable setting. The reader confirms the interpretation and reopens the evidence for each hop. Add [model extraction](../infra/private-vm.md#enable-company-graph-rag) when links need to come from prose. [Dashboard](../infra/review/README.md#confirm-a-read-only-lookup) · [Shared MCP](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) · [Upgrade from v1.1.3](../infra/private-vm.md#upgrade-or-roll-back-the-service)
+
+### List the sources a reader can access
+
+On a shared build, send a signed `POST /v1/sources/list` with `{"collection":"manuals","limit":50}`. Discover readable collection names from the signed `GET /v1/operator/status` response. The result contains the count of committed sources in that collection and one page of paths, source IDs and current revisions.
+
+Keep the reader, collection and page limit constant. Pass `next_cursor` as `cursor` on the next request until the service returns null. A stale cursor gets `INVENTORY_CHANGED`. Discard the earlier pages and start a new listing. The inventory describes committed indexed sources. Check the sync record separately for outstanding or skipped files.
+
+Use a current [shared MCP build](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) to call the same operation through `list_sources`. To source documents from a company repository, see the [trusted Git mirror recipe](../infra/private-vm.md#index-a-company-git-repository).
 
 ## Install from this repository
 
@@ -46,7 +54,7 @@ Choose the features you need. Re-run install with the same options and `--force`
 | `pdf` | Bounded text-layer PDF worker and page citations. No OCR. |
 | `ocr` | Experimental Linux worker for scanned and table PDFs. Uses a fresh index and a separate offline worker image. |
 | `docx` | Bounded Word main-body extraction and paragraph or table-cell citations. |
-| `xlsx` | Optional personal-index reader for Excel cells with worksheet and cell citations. |
+| `xlsx` | Reader for Excel cells in personal and shared folder indexes with worksheet and cell citations. |
 | `model` | OpenAI-compatible endpoint for embeddings, typed graph extraction, or cited answers, plus a model-free graph demo. |
 | `inference` | Pinned BGE weights and in-process ONNX embeddings. Operator supplies and pins the ONNX Runtime shared library. |
 | `mcp` | Read-only stdio search and citation reopening for an existing personal index. |
@@ -60,7 +68,7 @@ Put the standalone Windows x64 ZIP and its release checksum manifest in the same
 
 ~~~powershell
 & {
-  $archive = 'rust-rag-1.2.0-windows-x64.zip'
+  $archive = 'rust-rag-1.3.0-windows-x64.zip'
   $expected = @(Get-Content -LiteralPath 'SHA256SUMS.txt' -ErrorAction Stop |
     Where-Object { $_ -match ('^[a-fA-F0-9]{64}  ' + [regex]::Escape($archive) + '$') } |
     ForEach-Object { ($_ -split '  ', 2)[0] })
@@ -79,11 +87,11 @@ Put the standalone Windows x64 ZIP and its release checksum manifest in the same
 }
 ~~~
 
-The ZIP supplies `rust-rag.exe` and bundles SQLite. The install folder and PATH change are local to your account and the PATH change applies to the current shell. Continue with the [source review walkthrough](#review-sources-and-explain-results) in that shell.
+The ZIP supplies `rust-rag.exe`, bundles SQLite, and supports explicit Obsidian note links. The install folder and PATH change are local to your account and the PATH change applies to the current shell. Continue with the [source review walkthrough](#review-sources-and-explain-results) in that shell.
 
 ## Try personal search in the Linux image
 
-On a Linux amd64 machine with Docker, [verify and load the v1.2.0 image](../infra/private-vm.md#load-a-reviewed-release-archive). In the same shell, as a regular user with Docker access, create a private workspace and run an offline search:
+On a Linux amd64 machine with Docker, [verify and load the v1.3.0 image](../infra/private-vm.md#load-a-reviewed-release-archive). In the same shell, as a regular user with Docker access, create a private workspace and run an offline search:
 
 ~~~sh
 work=$(mktemp -d) || exit 1
@@ -110,6 +118,40 @@ Look for the locker 14 passage under `evidence` and its ranking under `explanati
 To use PDFs, install with `--features pdf`, initialize with `--upgrade`, and ingest with `--pdf`. If you need graph or semantic retrieval, initialize the advanced index too. Use [the Rust command reference](../crates/rust-rag/README.md) for the next steps.
 
 To try scanned PDF ingestion, use the [experimental offline Linux OCR recipe](../infra/ocr/README.md). It creates a fresh index with region citations and binds the index to the worker fingerprint. The native PDF feature handles text-layer documents. [OCR qualification status](../status.md)
+
+## Follow links in an Obsidian vault
+
+The Windows ZIP and Linux image include `note-links`. If you build from source, use `cargo install --path crates/rust-rag --locked --features note-links`. Index your private vault as in [personal search](#search-your-own-files), then use a vault-relative Markdown path or a unique note name.
+
+~~~sh
+rust-rag --state-dir "$state" note-links "Equipment/CedarPump.md" --depth 2 --json
+~~~
+
+With the Linux image, use the `anyrag` helper from [the container quickstart](#try-personal-search-in-the-linux-image) and run `anyrag note-links "Equipment/CedarPump.md" --depth 2 --json`.
+
+Each link shows its source note, target note and cited span. Reopen the returned chunk with `citation CHUNK_ID --revision REVISION --json`. The command follows literal `[[Note]]` and `[[Folder/Note|label]]` references. A heading fragment still points to the note. Open the note to check the heading itself. The command skips embeds, code, and comment text, and reports unresolved ambiguous or missing targets.
+
+Save a rename or edit in the vault and run `ingest "$files" --sync` before traversing again. The command checks that each note still matches its indexed revision and uses no model. It follows up to three hops and reports when its read or traversal limits leave the result partial. These are navigation links. Use the reviewed relationship workflow for claims such as a component requiring another component.
+
+## Check retrieval on your own questions
+
+Create a private JSON Lines file with one case per line. For each case, give a question and the exact passages you need to see. Use source paths relative to the folder you indexed.
+
+~~~jsonl
+{"question":"Where is the spare pump filter?","expected":[{"path":"workshop.md","quote":"Its spare filter is stored in cabinet seven"}]}
+~~~
+
+This example uses the `examples/library` folder. Build the default CLI, initialize a private index, and ingest the folder before running the check. Use the same case file and result limit before and after a change.
+
+~~~sh
+rust-rag --state-dir "$state" check-retrieval "$cases" --limit 5 --json
+~~~
+
+The checker reopens each matching citation at its returned revision and checks the exact excerpt within one passage. A case passes when every expected excerpt appears among the returned candidates. The command reports counts and evidence ranks without printing your questions, paths or quotes. A miss makes it exit nonzero. Sync after source changes so the check reflects the current indexed files. For an advanced index with a built graph, add `--graph` and rerun the same cases to see which passages graph expansion adds or displaces.
+
+Use `"expected":[]` for a query whose retrieval result should be empty. Any returned candidate fails this control, including a weak match. Use a separate answer check to test whether a model abstains when the retrieved passages lack the answer.
+
+This optional check uses lexical retrieval and existing graph evidence. It makes no embedding or answer-model calls. Use it to evaluate support for known questions. Use separate checks for generated answers and authorized shared access. [Evaluation guide](rag-reference.md#evaluate-the-failing-stage)
 
 ## Local graph for declared relationships
 
@@ -265,6 +307,12 @@ rust-rag --state-dir /private/index query "azurite relay" --json
 
 Each indexed value carries an anchor such as `sheet:Inventory!C7`. Pass the returned chunk ID and revision to `citation` to reopen the value. The reader uses visible worksheets and literal cell values. It skips formula cells, including their cached values. Numbers use their stored values. For a sum, join, or filtered report, use a spreadsheet or database tool and cite the contributing cells separately.
 
+### Find a value by its row and column labels
+
+On a current build, ingest Word or Excel into a new advanced index. Ask a question that includes the exact first-column row label and first-row column header. Use keyword or hybrid retrieval with room for at least three results. A match returns the original cell, row label, and header as three separately reopenable citations.
+
+This lookup uses parser-verified flat tables and unique matches within one table or sheet. An Excel sheet needs a contiguous unmerged grid starting at A1. A Word table needs aligned unmerged cells with one paragraph per cell. With Graph RAG enabled, table evidence can fill the result when traversal adds no evidence. For any other layout, use ordinary retrieval and verify the value against the source. Rebuild an older index into separate state to add this layout metadata.
+
 ## Inspect what the dashboard indexed
 
 Open the live personal dashboard and pair it with the access code from the terminal. In **Indexed sources**, browse the first 50 sources or paste a `source_id` from query output. Open a source to see its first 30 indexed passages, including their offsets and any page or cell anchor. Each preview shows up to 1,200 characters.
@@ -366,7 +414,7 @@ For MCP, append `--reranker-profile` and the profile path to the server's launch
 
 For team use, choose a trusted OIDC issuer and enforce grants with the [shared profile](../infra/shared.profile.example.json) and [private VM runbook](../infra/private-vm.md). For company Graph RAG, use `rust-rag plan company --json` to start with the portable shared service and select a target. The [deployment recipes](../infra/README.md#deployment-targets) describe host and provider requirements. The [reference](rag-reference.md) explains adapters you can integrate, including pgvector and rerankers.
 
-Use the v1.2.0 portable Linux image or a source build with `shared` to enable a collection publication policy. A team can publish routine catalog links automatically and send prose, conflicts, or high-impact links to review. Reviewers use their own signed tokens and need read and review grants for the collection. [Company publication and review](../infra/private-vm.md#review-shared-graph-relationships) · [Operator rehearsal](rehearsal.md)
+Use the v1.3.0 portable Linux image or a source build with `shared` to enable a collection publication policy. A team can publish routine catalog links automatically and send prose, conflicts, or high-impact links to review. Reviewers use their own signed tokens and need read and review grants for the collection. [Company publication and review](../infra/private-vm.md#review-shared-graph-relationships) · [Operator rehearsal](rehearsal.md)
 
 ### Rehearse private Graph RAG with synthetic sources
 
@@ -457,7 +505,7 @@ Query results are candidate context, including weak matches. Verify the cited te
 Build the minimal x64 archive with [the release builder](../scripts/build_native_release.py) from a reviewed commit. Choose a short output path outside sync folders. The builder creates two MSVC build trees under the output parent, and deep paths can prevent the bundled SQLite object from being written. Keep the ZIP, SHA-256 manifest, SBOM, and provenance together. For the clean client check, copy the ZIP and [test script](../scripts/test_native_windows.ps1) to the guest. Use a standard account with a Unicode profile path containing spaces and a locally redirected Documents folder. Disconnect networking before running.
 
 ~~~powershell
-powershell.exe -NoProfile -File .\test_native_windows.ps1 -Archive .\rust-rag-1.2.0-windows-x64.zip -ExpectedSha256 <recorded-ZIP-SHA256>
+powershell.exe -NoProfile -File .\test_native_windows.ps1 -Archive .\rust-rag-1.3.0-windows-x64.zip -ExpectedSha256 <recorded-ZIP-SHA256>
 ~~~
 
 Record Defender and SmartScreen observations for the exact distribution bytes. The isolated Windows container test and host walkthrough are separate from this guest check.

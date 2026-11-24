@@ -1,6 +1,6 @@
 [package]
 name = "rust-rag"
-version = "1.2.0"
+version = "1.3.0"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"
@@ -20,6 +20,7 @@ xlsx = ["dep:calamine", "dep:serde", "dep:zip", "dep:rlimit", "dep:windows-sys"]
 model = ["dep:ureq", "dep:tempfile", "dep:serde"]
 inference = ["model", "dep:ort", "dep:tokenizers", "dep:libloading"]
 mcp = ["dep:serde", "serde_json/raw_value"]
+note-links = ["dep:pulldown-cmark"]
 dashboard = ["dep:getrandom", "dep:httparse", "dep:serde", "dep:subtle", "dep:tempfile", "dep:time", "dep:windows-sys", "rusqlite/hooks"]
 shared = ["model", "dep:tiny_http", "dep:ring", "dep:base64", "dep:serde", "dep:tempfile", "rusqlite/backup"]
 aws = ["shared", "dep:aws-config", "dep:aws-sdk-s3", "dep:aws-sdk-neptunedata", "dep:aws-smithy-types", "dep:hmac", "dep:tokio"]
@@ -38,6 +39,7 @@ hmac = { version = "0.12", optional = true }
 httparse = { version = "=1.10.1", optional = true }
 lopdf = { version = "=0.47.0", default-features = false, optional = true }
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["load-dynamic", "api-24"], optional = true }
+pulldown-cmark = { version = "=0.13.6", default-features = false, optional = true }
 ring = { version = "0.17", optional = true }
 roxmltree = { version = "=0.21.2", default-features = false, features = ["std"], optional = true }
 rusqlite = { version = "=0.41.1", default-features = false, features = ["bundled"] }

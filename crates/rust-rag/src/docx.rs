@@ -20,7 +20,7 @@ const MAX_DEPTH: usize = 64;
 const MAX_PARAGRAPHS: usize = 20_000;
 const MAX_CHARACTERS: usize = 2_000_000;
 const MAX_ANCHOR: usize = 80;
-const MAX_OUTPUT: usize = 6 * MAX_CHARACTERS + (MAX_ANCHOR + 32) * MAX_PARAGRAPHS + 256;
+const MAX_OUTPUT: usize = 6 * MAX_CHARACTERS + (MAX_ANCHOR + 56) * MAX_PARAGRAPHS + 256;
 const WORD: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const STRICT_WORD: &str = "http://purl.oclc.org/ooxml/wordprocessingml/main";
 const RELS: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
@@ -44,6 +44,8 @@ type Archive<'a> = ZipArchive<Cursor<&'a [u8]>>;
 pub struct Paragraph {
     pub anchor: String,
     pub text: String,
+    #[serde(default)]
+    pub flat_table: bool,
 }
 
 pub fn extract(raw: &[u8]) -> Result<Vec<Paragraph>> {
@@ -463,7 +465,11 @@ impl Body {
                 }
             }
         }
-        self.paragraphs.push(Paragraph { anchor, text });
+        self.paragraphs.push(Paragraph {
+            anchor,
+            text,
+            flat_table: false,
+        });
         Ok(())
     }
 
@@ -481,11 +487,59 @@ impl Body {
         if styles.hides(style)? {
             return Ok(());
         }
-        for (row, item) in visible_children(table, ns)
+        let rows: Vec<_> = visible_children(table, ns)
             .into_iter()
             .filter(|item| item.has_tag_name((ns, "tr")))
-            .enumerate()
-        {
+            .collect();
+        let width = |row| {
+            visible_children(row, ns)
+                .into_iter()
+                .filter(|item| item.has_tag_name((ns, "tc")))
+                .count()
+        };
+        let single_paragraph_cells = rows.iter().copied().all(|row| {
+            visible_children(row, ns)
+                .into_iter()
+                .filter(|cell| cell.has_tag_name((ns, "tc")))
+                .all(|cell| {
+                    visible_children(cell, ns)
+                        .into_iter()
+                        .filter(|item| item.has_tag_name((ns, "p")))
+                        .count()
+                        == 1
+                })
+        });
+        let width_first = rows.first().copied().map(width).unwrap_or_default();
+        let grid_width = child(table, ns, "tblGrid").map(|item| {
+            item.children()
+                .filter(|item| item.has_tag_name((ns, "gridCol")))
+                .count()
+        });
+        let irregular = table.descendants().skip(1).any(|item| {
+            item.is_element()
+                && item.tag_name().namespace() == Some(ns)
+                && matches!(
+                    item.tag_name().name(),
+                    "tbl"
+                        | "gridSpan"
+                        | "gridBefore"
+                        | "gridAfter"
+                        | "hMerge"
+                        | "vMerge"
+                        | "ins"
+                        | "del"
+                        | "cellDel"
+                        | "cellIns"
+                        | "cellMerge"
+                )
+        });
+        let flat = rows.len() >= 2
+            && width_first >= 2
+            && !irregular
+            && single_paragraph_cells
+            && grid_width.is_none_or(|grid| grid == width_first)
+            && rows.iter().copied().all(|row| width(row) == width_first);
+        for (row, item) in rows.into_iter().enumerate() {
             if child(item, ns, "trPr")
                 .and_then(|properties| child(properties, ns, "del"))
                 .is_some()
@@ -508,6 +562,7 @@ impl Body {
                     .filter(|item| item.has_tag_name((ns, "p")))
                     .enumerate()
                 {
+                    let first = self.paragraphs.len();
                     self.paragraph(
                         item,
                         ns,
@@ -519,6 +574,9 @@ impl Body {
                         ),
                         styles,
                     )?;
+                    for passage in &mut self.paragraphs[first..] {
+                        passage.flat_table = flat;
+                    }
                 }
             }
         }

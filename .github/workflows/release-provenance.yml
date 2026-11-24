@@ -124,7 +124,7 @@ jobs:
           docker image load --input "$output/rust-rag-linux-amd64.tar"
           test "$(docker image inspect --format '{{.Id}}' "$image")" = "$image_id"
           docker run --rm --network none --read-only "$image_id" capabilities --json |
-            jq -e '.compiled.shared_service and .compiled.local_dashboard and .compiled.mcp_stdio'
+            jq -e '.compiled.shared_service and .compiled.local_dashboard and .compiled.mcp_stdio and .compiled.xlsx and .compiled.note_links'
           container=$(docker create --network none "$image_id")
           trap 'docker rm "$container" >/dev/null' EXIT
           docker cp "$container:/usr/local/bin/rust-rag" "$RUNNER_TEMP/rust-rag"
@@ -138,7 +138,7 @@ jobs:
           syft-version: v1.55.0
       - name: Inventory the locked Rust build graph
         env:
-          LINUX_RELEASE_FEATURES: pdf,docx,shared,dashboard,mcp
+          LINUX_RELEASE_FEATURES: pdf,docx,xlsx,shared,dashboard,mcp,note-links
         run: |
           # Keep the inventory on the same feature selection as the default Docker build.
           grep -Fq "0) features=$LINUX_RELEASE_FEATURES ;;" Dockerfile
