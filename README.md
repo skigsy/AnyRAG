@@ -1,6 +1,6 @@
 # AnyRAG
 
-![AnyRAG — open-source Rust foundation for private document search and Graph RAG](docs/assets/anyrag-banner.svg)
+![AnyRAG — open-source Rust foundation for private document search and Graph RAG](docs/assets/anyrag-wordmark.svg)
 
 **Start with working RAG. Build the version you need.**
 
@@ -80,7 +80,7 @@ See the linked setup for package and build options. Guided lookup runs after an 
 
 ## Live operator dashboard
 
-[![AnyRAG shared operator dashboard using synthetic data, with corpus bars, graph and vector queues, and the operator watchlist.](docs/assets/dashboard/anyrag-overview.png)](infra/review/README.md)
+[![AnyRAG shared operator dashboard using synthetic data, with corpus bars, graph and vector queues, and the operator watchlist.](docs/assets/dashboard/shared-operator-console.png)](infra/review/README.md)
 
 See what’s indexed and where work is waiting. Follow the watchlist into evidence traces, graph review, and checks that reopen citations under the signed-in user's access.
 
