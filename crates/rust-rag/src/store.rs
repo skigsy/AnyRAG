@@ -2459,7 +2459,7 @@ mod local_ingest_tests {
     #[test]
     fn graph_without_neighbors_keeps_the_complete_native_table_proof() -> Result<()> {
         let scratch = tempfile::tempdir()?;
-        let state = files::state_directory(scratch.path(), true)?;
+        let state = files::state_directory(&scratch.path().join("state"), true)?;
         let mut db = open(&state, true)?;
         upgrade(&mut db, &state)?;
         let mut chunks = Vec::new();
