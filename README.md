@@ -64,11 +64,12 @@ AnyRAG includes the code, deployment recipes, and tests for the work that starts
 
 You choose the files, the model if you need one, who gets access, and where it runs. [Explore the architecture](docs/architecture.md)
 
-## What's new in v1.3.0
+## What's new in v1.3.1
 
 | Feature | What you can do |
 | --- | --- |
-| [List the sources you can access](docs/setup.md#list-the-sources-a-reader-can-access) | Page through your exact authorized source inventory from the signed API or MCP. |
+| [Find collections and sources through MCP](docs/setup.md#list-the-sources-a-reader-can-access) | Discover the collections a reader can access, then page through their committed inventory. |
+| [Review and verify graph links in the browser](infra/review/README.md) | Dismiss proposals, approve a verified link, and reopen each citation at its exact revision. |
 | [Sync a company Git mirror](infra/private-vm.md#index-a-company-git-repository) | Index a selected ref at an exact commit and keep citations current through edits and deletions under collection-level grants. Requires a source build and native Git. |
 | [Follow Obsidian note links](docs/setup.md#follow-links-in-an-obsidian-vault) | Follow explicit links and reopen their exact source spans without a model. |
 | [Cite Word and Excel tables](docs/setup.md#search-an-excel-workbook) | Retrieve a supported table's header, row label, and value with separate citations. Available in the Linux image or a source build. |
@@ -88,7 +89,7 @@ See what’s indexed and where work is waiting. Follow the watchlist into eviden
 
 ## Quickstart: Rust personal search
 
-[Windows ZIP](docs/setup.md#install-the-windows-zip) · [Linux image](docs/setup.md#try-personal-search-in-the-linux-image) · [Build from source](docs/setup.md#install-from-this-repository) · [v1.3.0 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.3.0)
+[Windows ZIP](docs/setup.md#install-the-windows-zip) · [Linux image](docs/setup.md#try-personal-search-in-the-linux-image) · [Build from source](docs/setup.md#install-from-this-repository) · [v1.3.1 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.3.1)
 
 Start with local Markdown and text search. The default build needs no model or database service.
 

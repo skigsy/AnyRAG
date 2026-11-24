@@ -4,7 +4,7 @@ Use this recipe on an existing Linux host, including an Azure VM. It requires a 
 
 ## Build an image
 
-Use a clean approved checkout and Docker BuildKit. The default image builds the Rust workspace with shared serving, PDF, and Word support, bundles SQLite, and runs as UID 10001. Start a local rehearsal with the base image digests in the Dockerfile. Build the optional AWS feature when the deployment needs it.
+Use a clean approved checkout and Docker BuildKit. The default image builds the Rust workspace with shared serving and PDF, Word and Excel readers, bundles SQLite, and runs as UID 10001. Start a local rehearsal with the base image digests in the Dockerfile. Build the optional AWS feature when the deployment needs it.
 
 ~~~sh
 docker build --tag rust-rag:local .
@@ -14,21 +14,32 @@ The image context allowlists Rust source and packaging files. For a release, rec
 
 ### Load a reviewed release archive
 
-Download `rust-rag-linux-amd64.tar`, `linux-image.json`, and `SHA256SUMS.txt` from the [v1.3.0 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.3.0). With Docker and `jq` installed, run this from their folder. Check both transferred files before loading. Different Docker image stores may report the reviewed image ID or its Linux amd64 config digest. [Verify package provenance](../docs/evidence.md#verify-package-provenance)
+Download `rust-rag-linux-amd64.tar`, `linux-image.json`, and `SHA256SUMS.txt` from the [v1.3.1 release](https://github.com/skigsy/AnyRAG/releases/tag/v1.3.1). Follow the [package provenance check](../docs/evidence.md#verify-package-provenance) for that tag. In the same shell, keep the verified `release_tag` and `source_commit` from those commands. For an offline install, obtain both values from your trusted release record before transferring the files.
 
-```sh
+Run the following from the download folder on Linux with Docker and `jq`. It checks both transferred files and compares their metadata to the selected tag and commit before loading. Different Docker image stores may report the reviewed image ID or its Linux amd64 config digest.
+
+~~~sh
 archive=rust-rag-linux-amd64.tar
 metadata=linux-image.json
 
 RUST_RAG_IMAGE=$(
+  jq -en --arg tag "${release_tag:-}" --arg commit "${source_commit:-}" '
+    ($tag | test("\\Av[0-9]+\\.[0-9]+\\.[0-9]+\\z")) and
+    ($commit | test("\\A[a-f0-9]{40}\\z"))
+  ' >/dev/null || { printf '%s\n' 'Set the verified release tag and full source commit.' >&2; exit 1; }
   for name in "$archive" "$metadata"; do
-    entry=$(awk -v name="$name" '$2 == name { print }' SHA256SUMS.txt)
-    test "$(printf '%s\n' "$entry" | wc -l)" -eq 1 || exit 1
+    entry=$(awk -v name="$name" '$2 == name { entry = $0; count++ }
+      END { if (count != 1) exit 1; print entry }' SHA256SUMS.txt) || exit 1
     printf '%s\n' "$entry" | sha256sum --check --strict >&2 || exit 1
   done
-  loaded_tag=$(jq -er '.image_tag | select(test("^any-rag-local:1\\.2\\.0-[a-f0-9]{12}$"))' "$metadata") || exit 1
-  reviewed_id=$(jq -er '.image_id | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata") || exit 1
-  image_config=$(jq -er '.config_digest | select(test("^sha256:[a-f0-9]{64}$"))' "$metadata") || exit 1
+  loaded_tag="any-rag-local:${release_tag#v}-$(printf '%.12s' "$source_commit")"
+  jq -e --arg tag "$loaded_tag" --arg commit "$source_commit" \
+    '.image_tag == $tag and .source_commit == $commit' "$metadata" >/dev/null || {
+      printf '%s\n' 'Image metadata differs from the verified release tag or source commit.' >&2
+      exit 1
+    }
+  reviewed_id=$(jq -er '.image_id | strings | select(test("\\Asha256:[a-f0-9]{64}\\z"))' "$metadata") || exit 1
+  image_config=$(jq -er '.config_digest | strings | select(test("\\Asha256:[a-f0-9]{64}\\z"))' "$metadata") || exit 1
   docker load --input "$archive" >&2 || exit 1
   image_id=$(docker image inspect --format '{{.Id}}' "$loaded_tag") || exit 1
   case "$image_id" in
@@ -39,7 +50,7 @@ RUST_RAG_IMAGE=$(
   test "$platform" = linux/amd64 || exit 1
   printf '%s\n' "$image_id"
 ) || exit 1
-```
+~~~
 
 Run the commands below or the [personal Linux quickstart](../docs/setup.md#try-personal-search-in-the-linux-image) in that shell. They use the verified local image ID and disable pulls. A source-built rehearsal uses `rust-rag:local` by default. Record the archive SHA-256, observed image ID, and `source_commit` from the checked metadata in the deployment receipt.
 
@@ -117,7 +128,7 @@ After starting the container in the next section, verify the proxy with `curl --
 
 ## Index a company Git repository
 
-Use a current native build with the `shared` feature and install Git on the service host. The packaged Linux image omits Git. For a container deployment, use a source-built derivative with distro-packaged Git on the service PATH and mount the mirror read-only.
+The Git mirror connector runs in a native build with the `shared` feature and Git on the service host. For a container deployment, build a derivative with distro-packaged Git on the service PATH and mount the mirror read-only. The standard Windows ZIP is for personal search. The packaged Linux image includes shared serving and omits the Git executable and OCR.
 
 Use a dedicated bare mirror of one company documentation repository. A separate operator or job with source-specific read credentials fetches updates into the mirror. Keep its credential configuration outside AnyRAG and give the service account read access to the mirror. Use a self-contained mirror and retain the history needed to advance the last indexed commit. For example, under the mirror operator account:
 
@@ -142,6 +153,8 @@ Use the same collection name in the signed AnyRAG policy. Include that collectio
 Run `service-doctor`, refresh the mirror, then sync as an administrator. The service reads one commit and publishes the completed collection transaction at once. Queries use the last committed data during staging. An edit keeps the source ID for the same path and retires its old citation. A rename retires the old path and adds the new path. Reopen a citation using the same signed reader, then remove that subject's grant and confirm the citation and search result become unavailable.
 
 The connector reads Markdown and text plus PDF, DOCX and XLSX when their existing readers are enabled. Git symlinks and submodules are skipped. Use a folder import for resolved Git LFS data. The inventory permits 10,000 entries, and a sync reads up to 128 MiB of changed blobs with a 16 MiB file limit. The service checks the mirror ref immediately before publishing. If the ref has moved at that check, the mirror or a required blob is unavailable, or a size limit is reached, the collection keeps its last complete snapshot. A later ref advance is picked up by the next sync. Fix the mirror or reduce the selected scope before retrying. Rewound or divergent history requires an explicit new deployment state with a new full sync.
+
+Use a folder-backed deployment for [OCR](ocr/README.md) or a folder collection for a [signed graph publication policy](#review-shared-graph-relationships). A Git collection has no configurable `graph_publication` or policy-defined reviewed relationships.
 
 Restore preserves the last accepted Git commit as a reconciliation floor. A backup retains its own indexed snapshot. Before reopening, sync the mirror at the accepted commit or a descendant so the service can rebuild current citations under current grants.
 
@@ -192,7 +205,7 @@ Sync admission returns HTTP 202. Poll the status endpoint until `sync.status` is
 
 ### Try Graph RAG with declared links
 
-On a disposable Linux host, [load the v1.3.0 image](#load-a-reviewed-release-archive) and [set up synthetic identity and local HTTPS](#synthetic-identity-and-tls-on-a-disposable-vm). Start from the [shared profile](shared.profile.example.json), use the `reference` folder source, and put the index, policy, backup and source directories on separate paths as in [Prepare trusted inputs](#prepare-trusted-inputs). For the fixture issuer, set `identity.jwks_file` and add the public-key directory mount below to the server and doctor commands. The private signing key and token files stay on the host.
+On a disposable Linux host, [load the v1.3.1 image](#load-a-reviewed-release-archive) and [set up synthetic identity and local HTTPS](#synthetic-identity-and-tls-on-a-disposable-vm). Start from the [shared profile](shared.profile.example.json), use the `reference` folder source, and put the index, policy, backup and source directories on separate paths as in [Prepare trusted inputs](#prepare-trusted-inputs). For the fixture issuer, set `identity.jwks_file` and add the public-key directory mount below to the server and doctor commands. The private signing key and token files stay on the host.
 
 ~~~sh
 --mount type=bind,src=/etc/rust-rag/public-keys,dst=/run/rust-rag/identity,readonly
@@ -326,7 +339,7 @@ Admin sync status includes per-collection graph and vector progress, plus any pr
 
 For a browser workflow, use the [shared Graph review dashboard](review/README.md) through a private gateway with per-user sign-in. You can also use the signed API from a terminal.
 
-Use the [v1.3.0 Linux image](#load-a-reviewed-release-archive) or a current source build with shared service support. Use a folder-backed collection with typed Graph RAG enabled. Merge the following keys into the collection grant in a new access policy version, preserving any other required read roles and endpoint grants. Give catalog write access only to people or systems authorized to declare current relationships. Each trusted path is an exact collection-relative filename. The issuer's reviewer subject maps to `maintenance-reviewer` in the top-level `subjects` policy map. The collection grants that role both read and review permissions. The `relations` endpoint grant enables prose extraction. Use an empty grant for [the declared-link walkthrough](#try-graph-rag-with-declared-links). [Rehearse signed review and recovery on synthetic data](../docs/rehearsal.md)
+Use the [v1.3.1 Linux image](#load-a-reviewed-release-archive) or a current source build with shared service support. Use a folder-backed collection with typed Graph RAG enabled. Merge the following keys into the collection grant in a new access policy version, preserving any other required read roles and endpoint grants. Give catalog write access only to people or systems authorized to declare current relationships. Each trusted path is an exact collection-relative filename. The issuer's reviewer subject maps to `maintenance-reviewer` in the top-level `subjects` policy map. The collection grants that role both read and review permissions. The `relations` endpoint grant enables prose extraction. Use an empty grant for [the declared-link walkthrough](#try-graph-rag-with-declared-links). [Rehearse signed review and recovery on synthetic data](../docs/rehearsal.md)
 
 ```json
 {
@@ -425,7 +438,7 @@ In `POST /v1/relationship`, an entity alias can appear in `root` or `target`, an
 
 ### Confirm a relationship interpretation
 
-On the v1.3.0 Linux image or a source build with `shared`, an application or coding agent can propose an explicit interpretation at `POST /v1/relationship/guided`. Send a `request` object using the typed contract, with one terminal predicate and exact ordered `path_predicates`. The optional `via` array contains one entry per intermediate position, in order. Use an exact entity name for a named intermediate and `null` for a position the request leaves open.
+On the v1.3.1 Linux image or a source build with `shared`, an application or coding agent can propose an explicit interpretation at `POST /v1/relationship/guided`. Send a `request` object using the typed contract, with one terminal predicate and exact ordered `path_predicates`. The optional `via` array contains one entry per intermediate position, in order. Use an exact entity name for a named intermediate and `null` for a position the request leaves open.
 
 ```json
 {

@@ -23,11 +23,11 @@ Replace the sample question with one about your files. Copy the `chunk_id` and `
 
 ### Search a private team collection
 
-Use the v1.3.0 Linux image or a source build with `shared`. A private deployment needs an identity issuer, HTTPS, and an administrator to configure a source folder and collection grants. The administrator runs `service-doctor`, starts the service and waits for the first sync. The reader asks the question at `POST /v1/query` and reopens the result at `GET /v1/evidence/{chunk_id}` under the same signed identity. The [dashboard Search view](../infra/review/README.md#search-authorized-documents) and [signed MCP search](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) use the same grants and evidence. [Private service runbook](../infra/private-vm.md#prepare-trusted-inputs) · [Try it with a synthetic identity](../infra/private-vm.md#synthetic-identity-and-tls-on-a-disposable-vm)
+Use the v1.3.1 Linux image or a source build with `shared`. A private deployment needs an identity issuer, HTTPS, and an administrator to configure a source folder and collection grants. The administrator runs `service-doctor`, starts the service and waits for the first sync. The reader asks the question at `POST /v1/query` and reopens the result at `GET /v1/evidence/{chunk_id}` under the same signed identity. The [dashboard Search view](../infra/review/README.md#search-authorized-documents) and [signed MCP search](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) use the same grants and evidence. [Private service runbook](../infra/private-vm.md#prepare-trusted-inputs) · [Try it with a synthetic identity](../infra/private-vm.md#synthetic-identity-and-tls-on-a-disposable-vm)
 
 ### Confirm a relationship across files
 
-Start with the v1.3.0 Linux image and [walk through Graph RAG with declared links](../infra/private-vm.md#try-graph-rag-with-declared-links). The walkthrough uses two Markdown files, a signed reviewer and two readers. It works without a model server. A guided lookup previews the start entity, ordered relations and applicable setting. The reader confirms the interpretation and reopens the evidence for each hop. Add [model extraction](../infra/private-vm.md#enable-company-graph-rag) when links need to come from prose. [Dashboard](../infra/review/README.md#confirm-a-read-only-lookup) · [Shared MCP](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) · [Upgrade from v1.1.3](../infra/private-vm.md#upgrade-or-roll-back-the-service)
+Start with the v1.3.1 Linux image and [walk through Graph RAG with declared links](../infra/private-vm.md#try-graph-rag-with-declared-links). The walkthrough uses two Markdown files, a signed reviewer and two readers. It works without a model server. A guided lookup previews the start entity, ordered relations and applicable setting. The reader confirms the interpretation and reopens the evidence for each hop. Add [model extraction](../infra/private-vm.md#enable-company-graph-rag) when links need to come from prose. [Dashboard](../infra/review/README.md#confirm-a-read-only-lookup) · [Shared MCP](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) · [Upgrade or roll back](../infra/private-vm.md#upgrade-or-roll-back-the-service)
 
 ### List the sources a reader can access
 
@@ -35,7 +35,7 @@ On a shared build, send a signed `POST /v1/sources/list` with `{"collection":"ma
 
 Keep the reader, collection and page limit constant. Pass `next_cursor` as `cursor` on the next request until the service returns null. A stale cursor gets `INVENTORY_CHANGED`. Discard the earlier pages and start a new listing. The inventory describes committed indexed sources. Check the sync record separately for outstanding or skipped files.
 
-Use a current [shared MCP build](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) to call the same operation through `list_sources`. To source documents from a company repository, see the [trusted Git mirror recipe](../infra/private-vm.md#index-a-company-git-repository).
+Use a [shared MCP build](../crates/rust-rag/README.md#guided-relationships-on-a-shared-service) to call the same operation through `list_sources`. Call `list_collections` first to discover the collections the signed reader can access. To source documents from a company repository, see the [trusted Git mirror recipe](../infra/private-vm.md#index-a-company-git-repository).
 
 ## Install from this repository
 
@@ -68,7 +68,7 @@ Put the standalone Windows x64 ZIP and its release checksum manifest in the same
 
 ~~~powershell
 & {
-  $archive = 'rust-rag-1.3.0-windows-x64.zip'
+  $archive = 'rust-rag-1.3.1-windows-x64.zip'
   $expected = @(Get-Content -LiteralPath 'SHA256SUMS.txt' -ErrorAction Stop |
     Where-Object { $_ -match ('^[a-fA-F0-9]{64}  ' + [regex]::Escape($archive) + '$') } |
     ForEach-Object { ($_ -split '  ', 2)[0] })
@@ -91,7 +91,7 @@ The ZIP supplies `rust-rag.exe`, bundles SQLite, and supports explicit Obsidian 
 
 ## Try personal search in the Linux image
 
-On a Linux amd64 machine with Docker, [verify and load the v1.3.0 image](../infra/private-vm.md#load-a-reviewed-release-archive). In the same shell, as a regular user with Docker access, create a private workspace and run an offline search:
+On a Linux amd64 machine with Docker, [verify and load the v1.3.1 image](../infra/private-vm.md#load-a-reviewed-release-archive). In the same shell, as a regular user with Docker access, create a private workspace and run an offline search:
 
 ~~~sh
 work=$(mktemp -d) || exit 1
@@ -258,9 +258,9 @@ Changing the model replaces the previous vectors. Source passages and their cita
 
 ### Local shared reranking
 
-Opt into the pinned Ettin 150M model to reorder the first 15 authorized candidates using up to 68 tokens per question–passage pair. It keeps the first-stage order for an exact identifier found in the evidence. The signed Linux reference run gained 0.06138 nDCG@10 and added 124.02 ms at p95, with 23 timeouts in 120 requests. This benchmark used a synthetic reciprocal-procedure workload on a Ryzen 7 9800X3D under Ubuntu WSL. [Paired results](project/inspect.md#reranker-qualification)
+Opt into the pinned Ettin 150M model to reorder the first 15 authorized candidates using up to 68 tokens per question–passage pair. It keeps the first-stage order for an exact identifier found in the evidence. Reranking is opt-in. Compare the initial order and reranked order on your own questions, including full citation coverage, timeouts and added latency.
 
-Build from source with `shared,inference`. On x86-64 the runtime checks for AVX2. The reference used the publisher's AVX-512-named INT8 export and Linux x64 ONNX Runtime 1.24.4 on the CPU above. An AVX2-only host needs its own compatibility check. Verify the library SHA-256 `d132535d051344ff5c64c9c200004150559049a81ed330eb4422c1962fb6b7e4` before using the example profile. Use the corresponding trusted library and checksum on another platform.
+Build from source with `shared,inference`. On x86-64 the runtime checks for AVX2. The example profile uses the publisher's AVX-512-named INT8 export and Linux x64 ONNX Runtime 1.24.4. An AVX2-only host needs its own compatibility check. Verify the library SHA-256 `d132535d051344ff5c64c9c200004150559049a81ed330eb4422c1962fb6b7e4` before using the example profile. Use the corresponding trusted library and checksum on another platform.
 
 Prepare the model on a local Linux filesystem, such as your Linux home directory under WSL. The build helper composes the quantized encoder and the classifier head from five publisher files, verifies every file, and writes the two pinned runtime files to a new directory. The tested preparation used Python 3.12, NumPy 2.5.4, ONNX 1.17.0 and protobuf 7.36.2. [Publisher revision](https://huggingface.co/cross-encoder/ettin-reranker-150m-v1/commit/cfa56e0d46b3a6ad6a710afbc3f202a5f2290aae)
 
@@ -294,7 +294,7 @@ Run the helper from the repository root. Use absolute paths in the administrator
 
 Run `service-doctor` with the profile and look for `"reranker":"ready"`. To opt in, include `"rerank":true` in an authenticated `POST /v1/query` body. The model scores only the question and authorized candidate passages in process. When scoring is unavailable or times out, the service returns the first-stage order with a bounded fallback reason. Existing queries keep their first-stage order by default.
 
-Profiles without `model` still select the earlier `minilm-l2-v2` export. Its latency met the target and its ranking quality missed the gate. [MiniLM results](project/inspect.md#reranker-qualification)
+Profiles without `model` select the earlier `minilm-l2-v2` export. Set the model explicitly for a new deployment.
 
 ## Search an Excel workbook
 
@@ -309,9 +309,9 @@ Each indexed value carries an anchor such as `sheet:Inventory!C7`. Pass the retu
 
 ### Find a value by its row and column labels
 
-On a current build, ingest Word or Excel into a new advanced index. Ask a question that includes the exact first-column row label and first-row column header. Use keyword or hybrid retrieval with room for at least three results. A match returns the original cell, row label, and header as three separately reopenable citations.
+On a current build, ingest Word or Excel into a new advanced index. Ask a question that includes the exact first-column row label and first-row column header. Use keyword or hybrid retrieval with room for at least three results. In a single index, a matching table can supply three separately reopenable citations for the cell, row label, and header. Shared search ranks across readable collections under one result limit. Increase that limit if needed and check that all three citations are present before using them as table proof.
 
-This lookup uses parser-verified flat tables and unique matches within one table or sheet. An Excel sheet needs a contiguous unmerged grid starting at A1. A Word table needs aligned unmerged cells with one paragraph per cell. With Graph RAG enabled, table evidence can fill the result when traversal adds no evidence. For any other layout, use ordinary retrieval and verify the value against the source. Rebuild an older index into separate state to add this layout metadata.
+This lookup uses parser-verified flat tables and unique matches within one table or sheet. An Excel sheet needs a contiguous unmerged grid with literal values starting at A1, including a populated corner. A Word table needs aligned unmerged cells with one paragraph per cell. With Graph RAG enabled, table evidence can fill the result when traversal adds no evidence. For any other layout, use ordinary retrieval and verify the value against the source. Rebuild an older index into separate state to add this layout metadata.
 
 ## Inspect what the dashboard indexed
 
@@ -414,7 +414,7 @@ For MCP, append `--reranker-profile` and the profile path to the server's launch
 
 For team use, choose a trusted OIDC issuer and enforce grants with the [shared profile](../infra/shared.profile.example.json) and [private VM runbook](../infra/private-vm.md). For company Graph RAG, use `rust-rag plan company --json` to start with the portable shared service and select a target. The [deployment recipes](../infra/README.md#deployment-targets) describe host and provider requirements. The [reference](rag-reference.md) explains adapters you can integrate, including pgvector and rerankers.
 
-Use the v1.3.0 portable Linux image or a source build with `shared` to enable a collection publication policy. A team can publish routine catalog links automatically and send prose, conflicts, or high-impact links to review. Reviewers use their own signed tokens and need read and review grants for the collection. [Company publication and review](../infra/private-vm.md#review-shared-graph-relationships) · [Operator rehearsal](rehearsal.md)
+Use the v1.3.1 portable Linux image or a source build with `shared` to enable a collection publication policy. A team can publish routine catalog links automatically and send prose, conflicts, or high-impact links to review. Reviewers use their own signed tokens and need read and review grants for the collection. [Company publication and review](../infra/private-vm.md#review-shared-graph-relationships) · [Operator rehearsal](rehearsal.md)
 
 ### Rehearse private Graph RAG with synthetic sources
 
@@ -505,7 +505,7 @@ Query results are candidate context, including weak matches. Verify the cited te
 Build the minimal x64 archive with [the release builder](../scripts/build_native_release.py) from a reviewed commit. Choose a short output path outside sync folders. The builder creates two MSVC build trees under the output parent, and deep paths can prevent the bundled SQLite object from being written. Keep the ZIP, SHA-256 manifest, SBOM, and provenance together. For the clean client check, copy the ZIP and [test script](../scripts/test_native_windows.ps1) to the guest. Use a standard account with a Unicode profile path containing spaces and a locally redirected Documents folder. Disconnect networking before running.
 
 ~~~powershell
-powershell.exe -NoProfile -File .\test_native_windows.ps1 -Archive .\rust-rag-1.3.0-windows-x64.zip -ExpectedSha256 <recorded-ZIP-SHA256>
+powershell.exe -NoProfile -File .\test_native_windows.ps1 -Archive .\rust-rag-1.3.1-windows-x64.zip -ExpectedSha256 <recorded-ZIP-SHA256>
 ~~~
 
 Record Defender and SmartScreen observations for the exact distribution bytes. The isolated Windows container test and host walkthrough are separate from this guest check.

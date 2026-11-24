@@ -17,11 +17,13 @@ use ureq::{
 
 const GUIDED: &str = "/v1/relationship/guided";
 const QUERY: &str = "/v1/query";
+const OPERATOR_STATUS: &str = "/v1/operator/status";
 const MAX_TOKEN: u64 = 16 * 1024;
 const MAX_BODY: u64 = 256 * 1024;
 const MAX_REVISION_BYTES: usize = 1024;
 const REQUEST_FAILED: &str = "Could not complete the request to the configured shared service.";
 const EVIDENCE_UNAVAILABLE: &str = "This citation is unavailable at the requested revision.";
+const COLLECTIONS_UNAVAILABLE: &str = "Collection discovery is unavailable during shared maintenance. Retry after the service reopens.";
 
 pub(super) struct Client {
     origin: Uri,
@@ -67,16 +69,31 @@ impl Client {
         self.response(response, path)
     }
 
-    fn evidence(&self, citation: Citation) -> Result<Value, &'static str> {
-        let url = self.uri(&format!("/v1/evidence/{}", citation.chunk_id))?;
+    fn get(&self, path: &str) -> Result<Value, &'static str> {
         let response = self
             .agent
-            .get(url)
+            .get(self.uri(path)?)
             .header("Authorization", self.authorization.clone())
             .header("Accept", "application/json")
             .call()
             .map_err(|_| REQUEST_FAILED)?;
-        let body = self.response(response, "/v1/evidence")?;
+        self.response(response, path)
+    }
+
+    fn collections(&self) -> Result<Value, &'static str> {
+        let status: OperatorStatus =
+            serde_json::from_value(self.get(OPERATOR_STATUS)?).map_err(|_| REQUEST_FAILED)?;
+        if status.schema_version != 1 {
+            return Err(REQUEST_FAILED);
+        }
+        if status.maintenance == Some(true) {
+            return Err(COLLECTIONS_UNAVAILABLE);
+        }
+        Ok(json!({"schema_version": 1, "collections": status.collections}))
+    }
+
+    fn evidence(&self, citation: Citation) -> Result<Value, &'static str> {
+        let body = self.get(&format!("/v1/evidence/{}", citation.chunk_id))?;
         if body["evidence"]["chunk_id"] != citation.chunk_id
             || body["evidence"]["revision"] != citation.revision
         {
@@ -90,10 +107,12 @@ impl Client {
         mut response: ureq::http::Response<ureq::Body>,
         path: &str,
     ) -> Result<Value, &'static str> {
-        match (response.status().as_u16(), path) {
-            (200, _) => {}
+        let status = response.status().as_u16();
+        match (status, path) {
+            (200, _) | (503, OPERATOR_STATUS) => {}
             (401 | 403, _) => return Err("The shared service denied this signed caller."),
             (404, INVENTORY) => return Err("No readable inventory matches that collection."),
+            (404, OPERATOR_STATUS) => return Err(REQUEST_FAILED),
             (404, _) => return Err(EVIDENCE_UNAVAILABLE),
             (409, _) if response.headers().contains_key("retry-after") => {
                 return Err("The shared service is busy. Retry the same request.");
@@ -129,11 +148,34 @@ impl Client {
             .ok()
             .and_then(|value| value.strip_prefix("Bearer "))
             .ok_or(REQUEST_FAILED)?;
-        if !body.is_object() || body.get("error").is_some() || contains_secret(&body, secret) {
+        if !body.is_object() || contains_secret(&body, secret) {
+            return Err(REQUEST_FAILED);
+        }
+        if status == 503 && body["error"]["code"] == "MAINTENANCE" {
+            return Err(COLLECTIONS_UNAVAILABLE);
+        }
+        if status != 200 || body.get("error").is_some() {
             return Err(REQUEST_FAILED);
         }
         Ok(body)
     }
+}
+
+#[derive(Deserialize)]
+struct OperatorStatus {
+    schema_version: u32,
+    maintenance: Option<bool>,
+    collections: Vec<ReadableCollection>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ReadableCollection {
+    name: String,
+    #[serde(
+        rename(deserialize = "sources"),
+        skip_serializing_if = "Option::is_none"
+    )]
+    total_sources: Option<u64>,
 }
 
 fn origin_uri(origin: &str) -> Result<Uri, &'static str> {
@@ -265,6 +307,8 @@ pub(super) fn tools() -> Value {
              "rerank":{"type":"boolean","default":false,
                        "description":"Use the configured reranker when available."}
          },"required":["question"],"additionalProperties":false},"annotations":annotations},
+        {"name":"list_collections", "description":"Find the collections the configured signed reader can currently access. Use a returned name with list_sources.",
+         "inputSchema":{"type":"object","properties":{},"additionalProperties":false},"annotations":annotations},
         {"name":"list_sources", "description":"List a page of committed source metadata for an authorized collection. Pass the returned next_cursor until it is null. Start without a cursor if the inventory changed.",
          "inputSchema":{"type":"object","properties":{
              "collection":{"type":"string","minLength":1,"maxLength":64},
@@ -302,6 +346,13 @@ pub(super) fn call(client: &Client, raw: Option<&RawValue>) -> Result<Value, (i3
                 &json!({"question":options.question, "limit":options.limit,
                         "mode":options.mode, "rerank":options.rerank, "graph":false}),
             )
+        }
+        "list_collections" => {
+            let arguments: serde_json::Map<String, Value> = params(Some(&arguments))?;
+            if !arguments.is_empty() {
+                return Err(INVALID_PARAMS);
+            }
+            client.collections()
         }
         "list_sources" => {
             let request: InventoryRequest = params(Some(&arguments))?;
@@ -455,6 +506,11 @@ mod tests {
             move || {
                 let signed = format!("Bearer {TOKEN}");
                 let citation = format!("/v1/evidence/{chunk}");
+                let discovery_status = json!({"schema_version":1,"maintenance":false,"policy_version":2,
+                "sync":{"status":"complete"},"collections":[
+                    {"name":"manuals","sources":2,"passages":8,"review":{"pending":1}},
+                    {"name":"shelf"}
+                ]});
                 for (method, path, body, status, result) in [
                     (Method::Post, GUIDED, json!({"request":typed}), 200, preview),
                     (
@@ -520,6 +576,20 @@ mod tests {
                         json!({"collection":"manuals","limit":1,"cursor":inventory_cursor}),
                         409,
                         json!({"error":TOKEN}),
+                    ),
+                    (
+                        Method::Get,
+                        OPERATOR_STATUS,
+                        Value::Null,
+                        200,
+                        discovery_status.clone(),
+                    ),
+                    (
+                        Method::Get,
+                        OPERATOR_STATUS,
+                        Value::Null,
+                        200,
+                        discovery_status,
                     ),
                 ] {
                     let mut incoming = server
@@ -623,10 +693,19 @@ mod tests {
                 "list_sources",
                 json!({"collection":"manuals","cursor":"invalid"}),
             ),
+            (18, "list_collections", json!({})),
+            (19, "list_collections", json!({"collection":"manuals"})),
         ] {
             append(
                 json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":args}}),
             );
+        }
+        for (id, params) in [
+            (20, json!({"name":"list_collections"})),
+            (21, json!({"name":"list_collections","arguments":null})),
+            (22, json!({"name":"list_sources"})),
+        ] {
+            append(json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":params}));
         }
         let mut stdout = Vec::new();
         run(&Backend::Shared(&client), input.as_slice(), &mut stdout).unwrap();
@@ -651,6 +730,7 @@ mod tests {
             names,
             [
                 "search",
+                "list_collections",
                 "list_sources",
                 "preview_relationship",
                 "confirm_relationship",
@@ -673,5 +753,13 @@ mod tests {
         assert_eq!(frames[15]["result"]["isError"], true);
         assert!(frames[15].to_string().contains("without a cursor"));
         assert_eq!(frames[16]["error"]["code"], -32602);
+        assert_eq!(
+            frames[17]["result"]["structuredContent"],
+            json!({"schema_version":1,"collections":[{"name":"manuals","total_sources":2},{"name":"shelf"}]})
+        );
+        assert_eq!(frames[18]["error"]["code"], -32602);
+        assert_eq!(frames[19]["result"], frames[17]["result"]);
+        assert_eq!(frames[20]["error"]["code"], -32602);
+        assert_eq!(frames[21]["error"]["code"], -32602);
     }
 }

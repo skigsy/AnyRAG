@@ -155,6 +155,9 @@ pre { max-height: 15rem; overflow: auto; font: inherit; }
 #approval, #context-preview, #decision-form { margin-top: .87rem; }
 #context-form { margin-top: .55rem; }
 #decision-form { display: grid; gap: .55rem; justify-items: start; }
+#pending-actions { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: .87rem; }
+#all-settings { margin-top: .65rem; }
+#all-settings p, #all-settings .confirmation { margin: .55rem 0; }
 .confirmation { display: flex; align-items: baseline; gap: .45rem; }
 details > summary { cursor: pointer; color: var(--gold); }
 

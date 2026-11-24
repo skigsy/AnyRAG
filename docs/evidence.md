@@ -6,7 +6,7 @@ Use this page to match a claim to a build, a workload, and a check you can run. 
 
 | Build | What you can verify |
 | --- | --- |
-| [v1.3.0 packages](https://github.com/skigsy/AnyRAG/releases/tag/v1.3.0) | Verify both packaged builds and repeat the checks for personal citations, signed shared search, and guided Graph RAG. |
+| [v1.3.1 packages](https://github.com/skigsy/AnyRAG/releases/tag/v1.3.1) | Verify both packaged builds and repeat the checks for personal citations, signed shared search, and guided Graph RAG. |
 | [v1.1.3 packages](https://github.com/skigsy/AnyRAG/releases/tag/v1.1.3) | Check the archive digests and signed build provenance for the Windows x64 ZIP and portable Linux amd64 image. |
 | [v1.0.0 packages](https://github.com/skigsy/AnyRAG/releases/tag/v1.0.0) | Use the checksums and signed build provenance to identify the exact Windows ZIP and Linux image. The Windows receipt covers the standalone CLI. The Linux receipt covers the full operator workflow using the executable from the archived image. |
 
@@ -17,13 +17,14 @@ Use this page to match a claim to a build, a workload, and a check you can run. 
 Download the ZIP or Linux image and `SHA256SUMS.txt` from the same release. Compare your archive hash to its entry. With the GitHub CLI installed and signed in, verify the build attestation against the source commit named by the release tag.
 
 ~~~sh
-archive=rust-rag-linux-amd64.tar   # Or rust-rag-1.3.0-windows-x64.zip
-source_commit=$(gh api repos/skigsy/AnyRAG/commits/v1.3.0 --jq .sha)
+archive=rust-rag-linux-amd64.tar   # Or rust-rag-1.3.1-windows-x64.zip
+release_tag=v1.3.1
+source_commit=$(gh api "repos/skigsy/AnyRAG/commits/$release_tag" --jq .sha) || exit 1
 gh attestation verify "$archive" --repo skigsy/AnyRAG \
   --source-digest "$source_commit" \
-  --source-ref refs/tags/v1.3.0 \
+  --source-ref "refs/tags/$release_tag" \
   --signer-workflow skigsy/AnyRAG/.github/workflows/release-provenance.yml \
-  --deny-self-hosted-runners
+  --deny-self-hosted-runners || exit 1
 ~~~
 
 The Windows ZIP contains a CycloneDX inventory of the selected dependencies. The Linux release provides a CycloneDX inventory of the image filesystem plus a separate inventory of the locked Rust build graph. The [Cargo advisory check](../scripts/check_advisories.py) queries OSV for exact locked registry versions. It accepts the unscored `paste@1.0.15` maintenance notice and fails on other returned advisories. [RustSec maintenance notice](https://rustsec.org/advisories/RUSTSEC-2024-0436.html)

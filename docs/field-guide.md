@@ -87,7 +87,7 @@ When a requested term is missing, map it to the dimension it changes. Describe i
 
 ## Personal Obsidian recipe
 
-For local keyword search, use [`rust-rag`](../crates/rust-rag/README.md). Select the vault or a notes subfolder and use a dedicated, unsynced index. The Rust scanner skips `.obsidian`, `.git`, `.trash`, and Windows cloud placeholders. Links and embeds inside a note are read as Markdown text. Traversing resolved note links or backlinks uses a separate link graph adapter. [Obsidian data storage](https://obsidian.md/help/data-storage) · [Obsidian note deletion](https://obsidian.md/help/manage-notes)
+For local keyword search, use [`rust-rag`](../crates/rust-rag/README.md). Select the vault or a notes subfolder and use a dedicated, unsynced index. The Rust scanner skips `.obsidian`, `.git`, `.trash`, and Windows cloud placeholders. `note-links` follows explicit outgoing Obsidian links and cites the original link text. [Obsidian data storage](https://obsidian.md/help/data-storage) · [Obsidian note deletion](https://obsidian.md/help/manage-notes)
 
 The [Rust quickstart](../README.md#quickstart-rust-personal-search) shows the first run. To apply it to a vault, initialize a new `--state-dir` and pass the selected local notes folder to `rust-rag ingest`. Repeat ingestion to pick up changes. Use `--sync` when you also want missing paths retired from the index.
 
@@ -104,18 +104,24 @@ rust-rag --state-dir "$state" ingest "$notes" --json
 rust-rag --state-dir "$state" query "What did I decide about the workshop layout?" --json
 ~~~
 
-On Windows, set the same inputs in PowerShell.
+On Windows, download the [Windows ZIP](https://github.com/skigsy/AnyRAG/releases/tag/v1.3.1), [verify it](evidence.md#verify-package-provenance), and extract it. Open PowerShell in the extracted folder. The executable can initialize the index directly from this folder with no source checkout or profile file. Set `$notes` to your vault or the folder you want to search.
 
 ~~~powershell
 $state = Join-Path $env:LOCALAPPDATA 'RustRAG-Obsidian'
 $notes = 'C:\path\to\vault\Notes'
-rust-rag --state-dir "$state" init --profile infra/obsidian.profile.json
-rust-rag --state-dir "$state" doctor --json
-rust-rag --state-dir "$state" ingest "$notes" --json
-rust-rag --state-dir "$state" query "What did I decide about the workshop layout?" --json
+.\rust-rag.exe --state-dir "$state" init --json
+.\rust-rag.exe --state-dir "$state" doctor --json
+.\rust-rag.exe --state-dir "$state" ingest "$notes" --json
+.\rust-rag.exe --state-dir "$state" query "What did I decide about the workshop layout?" --json
 ~~~
 
-Compare the returned `text` with the source at its `start` and `end` character offsets. Use the same selected folder for later updates. Re-ingest after an edit and verify the new quote and revision. Add `--sync` after a deletion to retire missing notes from the index, then confirm a query for a unique term in the deleted note returns no evidence. Use `rust-rag --state-dir "$state" remove --all --json` to clear indexed evidence while keeping the notes.
+To follow existing links, replace `Projects\Workshop.md` with a Markdown path relative to `$notes`, or use a unique note name. Windows accepts `/` and `\` in this command argument. Inside the notes, write literal destinations such as `[[Projects/Workshop]]`.
+
+~~~powershell
+.\rust-rag.exe --state-dir "$state" note-links 'Projects\Workshop.md' --depth 2 --json
+~~~
+
+Compare the returned `text` with the source at its `start` and `end` character offsets. Use the same selected folder for later updates. Re-ingest after an edit and verify the new quote and revision. Add `--sync` after a deletion to retire missing notes from the index, then confirm a query for a unique term in the deleted note returns no evidence. Run `remove --all --json` with the same executable and state directory to clear indexed evidence while keeping the notes.
 
 ## Example compositions
 

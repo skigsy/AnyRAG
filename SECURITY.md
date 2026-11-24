@@ -19,23 +19,17 @@ Keep private documents, credentials, runtime state, and backups outside the chec
 - Stable source identities drive idempotent ingestion and derived-data removal. Incomplete/inaccessible/changing directory enumeration never authorizes deleting missing index records. Found files that fail parsing retain their prior versions and are reported separately; they do not block removal of another file known to be missing. Index removal never deletes originals. Include all derived representations and retained exports/backups in policy. Logical removal, DB/WAL purge and forensic storage/snapshot erasure have distinct guarantees.
 - Managed profiles require least privilege, encrypted storage, private data-service networking, audit events without sensitive payloads, bounded spend and tested recovery.
 
-Shared restore uses a consistent SQLite backup, starts in maintenance, and reconciles current source inventory and independently versioned access policy before an administrator reopens queries. Backups can retain earlier content until their retention expires. Neptune stores keyed entity identifiers and opaque anchors with topology. Its snapshots have separate retention, and pending remote cleanup is reported separately from query visibility.
+Shared restore uses a consistent SQLite backup, starts in maintenance, and reconciles current source inventory and independently versioned access policy before an administrator reopens queries. Backups can retain earlier content until their retention expires. Reviewed facts and aliases also have a separate service control record. Lookups require current source anchors and current grants. Editing or deleting a source can make its evidence unavailable without erasing the retained review record. An unwithdrawn decision can become usable again if the exact evidence returns. Use explicit withdrawal to retire the decision across collection restores. Include review records and stored backup copies in the deployment's retention policy. Neptune stores keyed entity identifiers and opaque anchors with topology. Its snapshots have separate retention, and pending remote cleanup is reported separately from query visibility.
 
 ## Checks before public release
 
-1. Manually review every imported unit and its provenance/rights. Replace original data rather than relying on text substitution to anonymize it.
-2. Scan imported and staged/tracked content for secrets and identifying strings. Keep client-specific search dictionaries outside public artifacts. Review hits without printing private values to CI logs.
-3. Scan the complete proposed public Git history separately; start from clean imported source rather than the historical client repository.
-4. Inspect actual package/container archives, build contexts, bundled fixtures, generated docs and release attachments. Check ignored/untracked files did not enter artifacts.
-5. Run synthetic privacy, isolation, prompt-injection, deletion and offline-profile checks appropriate to the implemented slice.
-6. Record exact artifact digests, dependency/SBOM/license results, unresolved risks and evidence. Recheck the published artifact, not only the working tree.
+1. Review the exact outgoing source, assets, license notices, and Git history.
+2. Run the checksum-pinned secret scanner on the allowed tree and its reachable history. Investigate findings without printing private values.
+3. Inspect the build context, package and container contents, bundled fixtures, and release attachments.
+4. Run synthetic checks that exercise privacy, collection isolation, deletion, and the supported offline flows.
+5. Record package digests and provenance. Recheck the files downloaded from the published release.
 
-`public-files.json`, `.gitignore`, `.dockerignore`, and the planning checker are boundary aids. They do not perform content sanitization, comprehensive secret detection, Git-history review, dependency analysis or product security testing. A pull-request workflow runs after files have already been uploaded; it is not a substitute for local checks before push.
-
-The local workflow and prepared CI use a genuine secret scanner; local custody-label checks complement the bounded original-identifier review. Keep the exact-file boundary while original bundles share this folder; revisit its granularity after a clean source tree exists. Scanner hits require triage and manual review, not blind substitution or a claim of completed privacy clearance.
-
-The implementation uses checksum-pinned Gitleaks and an allowlisted public scan snapshot. In the operating workspace, run `scripts/security_check.py` with both `--private-archives` and `--history` to compare custody labels with the current files and the UTF-8 text of every reachable Git object. The history check covers removed text and historical filenames, and it reports redacted counts. A separate bounded audit compared original source identifiers against the public tree without persisting or printing the private dictionary. Review compressed assets, artwork and distribution contents separately.
-
+The public allowlist and build-context rules bound what can enter the release. Content and history scans are separate checks. Run both locally before upload.
 The PDF and DOCX decoders run in a native subprocess with bounded byte pipes and a 30-second wall-clock limit. The worker applies CPU and memory limits with Windows Job Objects or Unix resource limits before parsing untrusted bytes. The DOCX reader opens only the package metadata, main document, and optional styles and does not follow external relationships. Run untrusted parsing under the operating-system or container boundary required by your workload. Worker resource limits do not provide filesystem or network isolation.
 
 ## SQLite purge constraints
@@ -44,6 +38,6 @@ The SQLite store has synthetic logical-deletion and configured on-disk purge che
 
 For WAL mode, request a truncate checkpoint after removal and inspect whether it completed: active readers can block it. Report incomplete purge honestly; successful logical deletion is a different result. Canary/store checks and a DB/WAL byte scan can test the bounded purge behavior configured here, but do not establish forensic erasure from storage, snapshots or backups. [SQLite checkpoint semantics](https://www.sqlite.org/pragma.html#pragma_wal_checkpoint).
 
-A public vulnerability-reporting route must be established before release. Until then, use a private maintainer channel already known to you; do not post secrets or private documents to a public issue.
+Report suspected vulnerabilities through a private maintainer channel. If you need help finding one, ask for a private channel in an issue and keep technical details, credentials, and documents out of the public thread.
 
 CLI export requires an explicit new output file outside checkout/known sync locations and uses owner-only POSIX mode; no full-corpus stdout route is exposed. A consuming external assistant remains outside AnyRAG's control. Strong or weak retrieval results remain candidate context with unverified answer support.

@@ -9,6 +9,10 @@ const decisionForm = byId("decision-form");
 const status = byId("status");
 const previewText = byId("context-text");
 const approve = byId("approve");
+const dismiss = byId("dismiss");
+const allSettings = byId("all-settings");
+const confirmAllSettings = byId("confirm-all-settings");
+const approveAllSettings = byId("approve-all-settings");
 const hex = /^[a-f0-9]{64}$/;
 const collectionName = /^[a-z][a-z0-9_-]{0,63}$/;
 const reasons = {
@@ -87,10 +91,12 @@ function clearDetail() {
   retry = undefined;
   contextForm.reset();
   decisionForm.reset();
+  allSettings.open = false;
+  confirmAllSettings.checked = false;
   for (const id of ["primary", "existing-context", "anchors", "context-text", "context-source"]) {
     byId(id).replaceChildren();
   }
-  for (const id of ["detail", "approval", "context-preview"]) byId(id).hidden = true;
+  for (const id of ["detail", "approval", "context-preview", "pending-actions"]) byId(id).hidden = true;
   updateApproval();
 }
 
@@ -104,6 +110,9 @@ function clearQueue() {
 
 function updateApproval() {
   approve.disabled = !selected || anchors.length === 0 || !decisionForm.elements.confirm.checked;
+  const pending = selected && view && !view.scoped;
+  dismiss.disabled = !pending;
+  approveAllSettings.disabled = !pending || !allSettings.open || !confirmAllSettings.checked;
 }
 
 async function task(operation) {
@@ -197,6 +206,7 @@ async function inspect(row) {
   }
   byId("detail").hidden = false;
   byId("approval").hidden = view.scoped && row.reason !== "stale_scoped_context";
+  byId("pending-actions").hidden = view.scoped;
   decisionForm.elements.settings.value = (row.scope || []).join("\n");
   approve.textContent = view.scoped ? "Replace scoped review" : "Approve scoped relationship";
   byId("detail-heading").focus();
@@ -271,6 +281,35 @@ byId("use-selection").addEventListener("pointerdown", event => event.preventDefa
 byId("use-selection").addEventListener("click", () => task(() => addQuote(false)));
 byId("use-passage").addEventListener("click", () => task(() => addQuote(true)));
 
+async function recordDecision(decision, options, expectedStatus, message) {
+  const { proposal_id, revision, fingerprint, policy_version } = selected;
+  const payload = {
+    collection: view.collection, proposal_id, revision, fingerprint, policy_version, decision, ...options,
+  };
+  const key = JSON.stringify(payload);
+  if (retry?.key !== key) retry = { key, id: crypto.randomUUID() };
+  const result = await request("/v1/graph-review/decide", { ...payload, idempotency_key: retry.id });
+  required(result.status === expectedStatus, "The service did not confirm the decision. Load the queue to check its state.");
+  clearQueue();
+  announce(message);
+}
+
+dismiss.addEventListener("click", () => task(async () => {
+  required(selected && view && !view.scoped, "Reopen a current pending proposal before dismissing it.");
+  await recordDecision("dismiss", {}, "dismissed", "Proposal dismissed. Load the queue to see its current state.");
+}));
+
+allSettings.addEventListener("toggle", () => {
+  if (!allSettings.open) confirmAllSettings.checked = false;
+  updateApproval();
+});
+confirmAllSettings.addEventListener("change", updateApproval);
+approveAllSettings.addEventListener("click", () => task(async () => {
+  required(selected && view && !view.scoped && allSettings.open && confirmAllSettings.checked,
+           "Reopen the pending proposal and confirm that it holds across settings.");
+  await recordDecision("approve", {}, "approved", "Relationship published for all settings. Load the queue to see its current state.");
+}));
+
 decisionForm.elements.confirm.addEventListener("change", updateApproval);
 decisionForm.elements.settings.addEventListener("input", () => {
   decisionForm.elements.confirm.checked = false;
@@ -286,18 +325,10 @@ decisionForm.addEventListener("submit", event => {
     const scope = decisionForm.elements.settings.value.split("\n").map(value => value.trim());
     required(scope.length <= 8 && scope.every(tag => tag && Array.from(tag).length <= 96 && !/\p{Cc}/u.test(tag)) &&
              new Set(scope).size === scope.length, "Enter up to eight distinct setting tags, one per line.");
-    const { proposal_id, revision, fingerprint, policy_version } = selected;
-    const payload = {
-      collection: view.collection, proposal_id, revision, fingerprint, policy_version, decision: "approve",
+    await recordDecision("approve", {
       applicability: { scope, context: anchors.map(item => item.anchor) },
       ...(view.scoped ? { replace_scope: true } : {}),
-    };
-    const key = JSON.stringify(payload);
-    if (retry?.key !== key) retry = { key, id: crypto.randomUUID() };
-    const result = await request("/v1/graph-review/decide", { ...payload, idempotency_key: retry.id });
-    required(result.status === "approved_scoped", "The service did not confirm scoped approval.");
-    clearQueue();
-    announce("Scoped approval recorded. Load the queue to see its current state.");
+    }, "approved_scoped", "Scoped approval recorded. Load the queue to see its current state.");
   });
 });
 
@@ -309,12 +340,14 @@ const lookupStatus = byId("lookup-status");
 const lookupResult = byId("lookup-result");
 const lookupPreview = byId("lookup-preview");
 let pendingLookup;
+let lookupGeneration = 0;
 
-function clearLookup() {
+function clearLookup(message = "") {
+  lookupGeneration++;
   pendingLookup = undefined;
   lookupPreview.hidden = true;
   lookupResult.replaceChildren();
-  lookupStatus.textContent = "";
+  lookupStatus.textContent = message;
 }
 
 async function lookupTask(operation) {
@@ -333,16 +366,22 @@ async function lookupTask(operation) {
   }
 }
 
-function addLookupCitation(text, chunk) {
-  if (!hex.test(chunk)) return;
-  const link = node("a", text);
-  link.href = "/v1/evidence/" + chunk;
+function addLookupCitation(text, citation) {
+  const { chunk_id: id, revision, collection } = citation ?? {};
+  required(typeof id === "string" && hex.test(id) && typeof revision === "string" && revision.length > 0 &&
+           (collection === undefined || (typeof collection === "string" && collectionName.test(collection))),
+           "The lookup returned an incomplete citation. Preview it again.");
+  const generation = lookupGeneration;
   const row = node("p");
-  row.append(link);
+  row.append(button(text, () => diagnostics.reopen({ id, revision, collection }, false, () => {
+    if (generation === lookupGeneration) {
+      clearLookup("A lookup citation changed or is unavailable. Preview the lookup again.");
+    }
+  })));
   lookupResult.append(row);
 }
 
-lookupForm.addEventListener("input", clearLookup);
+lookupForm.addEventListener("input", () => clearLookup());
 lookupForm.addEventListener("submit", event => {
   event.preventDefault();
   lookupTask(async () => {
@@ -390,14 +429,14 @@ byId("lookup-confirm").addEventListener("click", () => lookupTask(async () => {
   if (route) lookupResult.append(route);
   for (const step of result.steps ?? []) {
     lookupResult.append(node("blockquote", step.quote));
-    addLookupCitation("Reopen relationship citation", step.citation?.chunk_id);
-    for (const binding of step.bindings ?? []) addLookupCitation("Reopen setting citation", binding.chunk_id);
+    addLookupCitation("Reopen relationship citation", step.citation);
+    for (const binding of step.bindings ?? []) addLookupCitation("Reopen setting citation", binding);
   }
   if (result.fact) {
-    addLookupCitation("Reopen documented fact", result.fact.primary?.chunk_id);
-    for (const binding of result.fact.context ?? []) addLookupCitation("Reopen fact context", binding.chunk_id);
+    addLookupCitation("Reopen documented fact", result.fact.primary);
+    for (const binding of result.fact.context ?? []) addLookupCitation("Reopen fact context", binding);
   }
-  for (const binding of result.name_bindings ?? []) addLookupCitation("Reopen name binding", binding.chunk_id);
+  for (const binding of result.name_bindings ?? []) addLookupCitation("Reopen name binding", binding);
 }));
 lookupWorkspace.disabled = workspace.disabled;
 

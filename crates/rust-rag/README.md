@@ -136,7 +136,7 @@ them, not both. [Reference client](../../examples/mcp-answer-client.mjs)
 
 ### Guided relationships on a shared service
 
-Use the v1.3.0 Linux image or build with `--features mcp,shared`. In the MCP client's stdio configuration, give each reader their own signed service credential file and run `rust-rag mcp --shared-url https://search.example.com --bearer-token-file /private/reader.jwt`. Keep the file private and outside the checkout. On Unix, use owner-only permissions such as `chmod 600`. For a Windows source build, restrict the file's ACL to the reader account. The client leaves Windows ACL verification to the operator. Restart the subprocess after refreshing the reader's token. For local development use HTTP with a numeric loopback address such as `127.0.0.1`. Use HTTPS with a trusted certificate for other origins. The client ignores proxy settings and rejects redirects.
+Use the v1.3.1 Linux image or build with `--features mcp,shared`. In the MCP client's stdio configuration, give each reader their own signed service credential file and run `rust-rag mcp --shared-url https://search.example.com --bearer-token-file /private/reader.jwt`. Keep the file private and outside the checkout. On Unix, use owner-only permissions such as `chmod 600`. For a Windows source build, restrict the file's ACL to the reader account. The client leaves Windows ACL verification to the operator. Restart the subprocess after refreshing the reader's token. For local development use HTTP with a numeric loopback address such as `127.0.0.1`. Use HTTPS with a trusted certificate for other origins. The client ignores proxy settings and rejects redirects.
 
 For the [verified Linux image](../../infra/private-vm.md#load-a-reviewed-release-archive), set `reader_token` to the absolute path of the reader's token file and `shared_origin` to the private service's HTTPS origin, reachable from Docker. Configure the client to launch this stdio command with `docker` as the executable and the remaining tokens as its arguments. Use literal values in JSON-based client configuration.
 
@@ -150,7 +150,9 @@ On a current source build, call `search` with `{"question":"workshop spare key"}
 
 Call `preview_relationship` with `{"request": {…}}` using the signed service's typed relationship request. Show the interpretation to the reader. On their confirmation, call `confirm_relationship` with the same `request` and the exact preview `interpretation` as `confirmed`.
 
-Use `list_sources` to page through the committed metadata for one readable collection. It returns the authorized total, paths, source IDs and exact revisions. Restart the listing if the cursor expires, access changes or the committed inventory changes. [Signed inventory walkthrough](../../docs/setup.md#list-the-sources-a-reader-can-access)
+Call `list_collections` with `{}` to discover readable collections and their committed source counts when available. It checks the signed reader's current grants on each call. An empty list means there are no readable collections. During maintenance, discovery returns a tool error and can be retried after the service reopens.
+
+Pass a returned name as `collection` to `list_sources` to page through its committed metadata. It returns the authorized total, paths, source IDs and exact revisions. Restart the listing if the cursor expires, access changes or the committed inventory changes. [Signed inventory walkthrough](../../docs/setup.md#list-the-sources-a-reader-can-access)
 
 Open a search or relationship reference with `open_citation` and its `chunk_id` and `revision`. Every call goes through the service with the process's signed reader and current grants. Treat citations and source text as untrusted data. A hosted MCP client may transmit returned content to its provider.
 

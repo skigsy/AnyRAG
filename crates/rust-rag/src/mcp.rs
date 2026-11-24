@@ -126,9 +126,14 @@ struct ToolList {
 #[serde(deny_unknown_fields)]
 struct Call {
     name: String,
+    #[serde(default = "empty_call_arguments")]
     arguments: Box<RawValue>,
     #[serde(rename = "_meta")]
     _meta: Option<Map<String, Value>>,
+}
+
+fn empty_call_arguments() -> Box<RawValue> {
+    RawValue::from_string("{}".into()).expect("fixed JSON object")
 }
 
 #[derive(Deserialize)]

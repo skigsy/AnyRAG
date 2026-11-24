@@ -1551,6 +1551,15 @@ fn signed_scoped_approval_is_invisible_to_ordinary_graph() {
             api(address, Some(ALICE.as_str()), &citation, None).1["evidence"]["text"],
             ALIASES
         );
+        fs::remove_file(open.join("names.md")).unwrap();
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        assert_eq!(guide(ALICE.as_str(), confirmation.clone()).0, 409);
+        assert_eq!(lookup(3).1["status"], "no_supported_value");
+        assert_eq!(api(address, Some(ALICE.as_str()), &citation, None).0, 404);
+        fs::write(open.join("names.md"), ALIASES).unwrap();
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        assert_eq!(guide(ALICE.as_str(), confirmation.clone()), confirmed);
+
         fs::write(open.join("names.md"), format!("Revised. {ALIASES}")).unwrap();
         assert_eq!(sync_company_graph(address, &model)["status"], "complete");
         assert_eq!(guide(ALICE.as_str(), confirmation.clone()).0, 409);
@@ -1685,12 +1694,13 @@ fn signed_terminal_facts_require_exact_current_reviewed_evidence() {
                 "predicate":predicate,"kind":kind,"target":target,"scope":["night shift"],"primary":primary
             })
         };
+        let negative_anchor = anchor("negative.md", NEGATIVE);
         let negative = req(
             "deny-copper",
             "requires",
             "explicit_negative",
             json!("Copper Relay"),
-            anchor("negative.md", NEGATIVE),
+            negative_anchor.clone(),
         );
         let decide = |body| signed(ALICE.as_str(), REVIEW, body);
         assert_eq!(signed(BOB.as_str(), REVIEW, negative.clone()).0, 403);
@@ -1749,7 +1759,35 @@ fn signed_terminal_facts_require_exact_current_reviewed_evidence() {
         assert_eq!(ask(required).1["status"], "conflict", "{}", ask(required).1);
         fs::remove_file(open.join("negative.md")).unwrap();
         assert_eq!(sync_company_graph(address, &model)["status"], "complete");
-        assert_ne!(ask(required).1["status"], "explicit_negative");
+        let retired = ask(required);
+        assert_eq!(retired.0, 200);
+        assert_ne!(retired.1["status"], "explicit_negative");
+        assert_ne!(retired.1["status"], "conflict");
+        assert!(!retired.1.to_string().contains(NEGATIVE));
+        let negative_citation = format!(
+            "/v1/evidence/{}",
+            negative_anchor["chunk_id"].as_str().unwrap()
+        );
+        assert_eq!(
+            api(address, Some(ALICE.as_str()), &negative_citation, None).0,
+            404
+        );
+
+        fs::write(open.join("negative.md"), NEGATIVE).unwrap();
+        assert_eq!(sync_company_graph(address, &model)["status"], "complete");
+        assert_eq!(ask(required).1["status"], "conflict");
+        let mut policy: Value = serde_json::from_slice(
+            &fs::read(fixture.root.path().join("policy/current.json")).unwrap(),
+        )
+        .unwrap();
+        policy["version"] = json!(3);
+        policy["subjects"]["alice"] = json!([]);
+        fixture.write_policy(policy);
+        assert!(!ask(required).1.to_string().contains(NEGATIVE));
+        assert_eq!(
+            api(address, Some(ALICE.as_str()), &negative_citation, None).0,
+            404
+        );
     });
 }
 

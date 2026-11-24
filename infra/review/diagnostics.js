@@ -354,7 +354,7 @@ export function mountDiagnostics(request, {
     return true;
   }
 
-  async function checkCitation(id, expected, fromSearch = false) {
+  async function checkCitation(id, expected, fromSearch = false, onUnavailable) {
     if (!citationId.test(id)) {
       message(sources, "Enter a 64-character chunk ID from an indexed citation.", "warn");
       return;
@@ -368,11 +368,12 @@ export function mountDiagnostics(request, {
       const { schema_version, evidence } = await request("/v1/evidence/" + id);
       if (version !== citationVersion) return;
       const identity = evidenceIdentity(evidence);
-      if (schema_version !== 1 || !identity || identity.id !== id) throw new Error("Invalid evidence identity.");
-      if ((expected?.revision && expected.revision !== identity.revision) ||
+      if (schema_version !== 1 || !identity) throw new Error("Invalid evidence identity.");
+      if (identity.id !== id || (expected?.revision && expected.revision !== identity.revision) ||
           (expected?.collection && expected.collection !== identity.collection)) {
         if (fromSearch) clearSearch();
-        message(sources, "The citation resolves to a different collection or revision. Run your search again.", "warn");
+        onUnavailable?.();
+        message(sources, "The citation resolves to a different identity, collection or revision. Run the search or lookup again.", "warn");
         onCitation({ title: "Citation identity changed", detail: "The current response did not match the selected result.", tone: "warn" });
         return;
       }
@@ -383,6 +384,7 @@ export function mountDiagnostics(request, {
       if (version !== citationVersion || changedAccess(error, sources)) return;
       if (error.status === 404 || error.status === 403) {
         if (fromSearch) clearSearch();
+        onUnavailable?.();
         message(sources, "Citation unavailable in the current index or to this session.", "warn");
         onCitation({ title: "Citation unavailable", detail: "Current index or session access", tone: "warn" });
       } else {
@@ -394,9 +396,9 @@ export function mountDiagnostics(request, {
     }
   }
 
-  function reopen(identity, fromSearch = false) {
+  function reopen(identity, fromSearch = false, onUnavailable) {
     openSources();
-    checkCitation(identity.id, identity, fromSearch);
+    checkCitation(identity.id, identity, fromSearch, onUnavailable);
   }
 
   async function runSearch(event) {
@@ -495,6 +497,7 @@ export function mountDiagnostics(request, {
   });
   return {
     clear,
+    reopen,
     setSearchScope(rows) {
       const wasAvailable = searchAvailable;
       searchAvailable = rows.length > 0;

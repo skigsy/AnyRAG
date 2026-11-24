@@ -150,6 +150,15 @@
                 <button id="approve" disabled>Approve scoped relationship</button>
               </form>
             </div>
+            <div id="pending-actions" hidden>
+              <button id="dismiss" class="ops-secondary" type="button" disabled>Dismiss proposal</button>
+              <details id="all-settings">
+                <summary>Approve for all settings</summary>
+                <p>This publishes the relationship to ordinary Graph RAG retrieval for this collection. Use it only when the relationship holds across settings.</p>
+                <label class="confirmation"><input id="confirm-all-settings" type="checkbox"> I checked the direction and confirmed that the relationship holds across settings.</label>
+                <button id="approve-all-settings" class="ops-secondary" type="button" disabled>Publish for all settings</button>
+              </details>
+            </div>
           </section>
         </fieldset>
       </section>

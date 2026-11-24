@@ -120,9 +120,38 @@ jobs:
           jq -n --arg tag "$image" --arg image_id "$image_id" --arg config "sha256:${config_hash%% *}" \
             --arg commit "$GITHUB_SHA" '{image_tag:$tag,image_id:$image_id,config_digest:$config,source_commit:$commit}' \
             > "$output/linux-image.json"
+          loader=$(awk '
+            /^### Load a reviewed release archive$/ { section = 1; next }
+            section && /^~~~sh$/ { code = 1; next }
+            code && /^~~~$/ { exit }
+            code { print }
+          ' infra/private-vm.md)
+          test -n "$loader"
+          (
+            cd "$output"
+            sha256sum rust-rag-linux-amd64.tar linux-image.json > SHA256SUMS.txt
+            release_tag="v$version"
+            source_commit="${GITHUB_SHA%?}0"
+            if [ "$source_commit" = "$GITHUB_SHA" ]; then source_commit="${GITHUB_SHA%?}1"; fi
+            unexpected_load="$RUNNER_TEMP/runbook-unexpected-load"
+            if (
+              docker() { touch "$unexpected_load"; return 1; }
+              eval "$loader"
+            ); then
+              printf '%s\n' 'Runbook accepted a different full commit.' >&2
+              exit 1
+            fi
+            test ! -e "$unexpected_load"
+          )
           docker image rm "$image"
-          docker image load --input "$output/rust-rag-linux-amd64.tar"
-          test "$(docker image inspect --format '{{.Id}}' "$image")" = "$image_id"
+          (
+            cd "$output"
+            release_tag="v$version"
+            source_commit="$GITHUB_SHA"
+            eval "$loader"
+            test "$RUST_RAG_IMAGE" = "$image_id"
+          )
+          rm "$output/SHA256SUMS.txt"
           docker run --rm --network none --read-only "$image_id" capabilities --json |
             jq -e '.compiled.shared_service and .compiled.local_dashboard and .compiled.mcp_stdio and .compiled.xlsx and .compiled.note_links'
           container=$(docker create --network none "$image_id")

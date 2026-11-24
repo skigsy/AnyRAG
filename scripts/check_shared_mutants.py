@@ -34,14 +34,14 @@ def stale_citation(text):
     old = '''                return Ok(json!({"schema_version":1,"evidence":item}));
             }
         }
-        self.check_scope(principal, &scope, None)?;
+        self.check_scope(principal, &scope, None, None)?;
         Err(NOT_FOUND)'''
     new = '''                let result = json!({"schema_version":1,"evidence":item});
                 fixture_cache().lock().map_err(unavailable)?.insert(id.into(), result.clone());
                 return Ok(result);
             }
         }
-        self.check_scope(principal, &scope, None)?;
+        self.check_scope(principal, &scope, None, None)?;
         if let Some(result) = fixture_cache().lock().map_err(unavailable)?.get(id)
             && result["evidence"]["collection"].as_str().is_some_and(|name| scope.iter().any(|s| s == name))
         {
@@ -85,7 +85,7 @@ def stale_graph(text):
 
 def omit_post_dispatch_check(text):
     return exact_replace(text, """        });
-        self.check_scope(principal, &scope, answer_dest)?;
+        self.check_scope(principal, &scope, answer_dest, graph_policy)?;
         if let Some(name) = embedding""", """        });
         // Disposable fault: trust the policy snapshot from before model dispatch.
         if let Some(name) = embedding""")

@@ -95,6 +95,10 @@ pub(crate) fn run(db: &mut Connection, start: &str, depth: u8) -> Result<Value> 
         }
         notes
     };
+    // Accept native separators in the command argument. Note contents still
+    // use the literal wikilink resolver and its relative path checks.
+    #[cfg(windows)]
+    let start = &start.replace('\\', "/");
     let start = resolve(&notes, start)
         .context("Use one indexed Markdown path or an unambiguous note name.")?;
     let mut queue = VecDeque::from([(start, 0)]);
@@ -239,10 +243,11 @@ mod tests {
         let state = files::state_directory(&state, true)?;
         let mut index = store::open(&state, true)?;
         let entry = sources.join("Entry.md");
-        let relay = sources.join("Relay.md");
+        fs::create_dir(sources.join("ops"))?;
+        let relay = sources.join("ops").join("Relay.md");
         fs::write(
             &entry,
-            "# Étape\n\nCheck [[Relay|the part]]. `[[Decoy]]` and %% [[Decoy]] %%.",
+            "# Étape\n\nCheck [[Relay|the part]]. `[[Decoy]]` and %% [[Decoy]] %%. [[ops\\Relay]].",
         )?;
         fs::write(&relay, "Read [[Entry]] before proceeding.")?;
         fs::write(sources.join("Decoy.md"), "This is not linked from prose.")?;
@@ -253,7 +258,24 @@ mod tests {
             .as_array()
             .context("Expected link entries.")?;
         assert_eq!(links.len(), 2);
-        assert_eq!(links[0]["to"], "Relay.md");
+        assert_eq!(links[0]["to"], "ops/Relay.md");
+        assert_eq!(found["unresolved_links"], 1);
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                run(&mut index, r"ops\Relay.md", 2)?,
+                run(&mut index, "ops/Relay.md", 2)?
+            );
+            for invalid in [
+                r"\ops\Relay.md",
+                r"C:\ops\Relay.md",
+                r"C:ops\Relay.md",
+                r"\\localhost\vault\ops\Relay.md",
+                r"ops\..\Entry.md",
+            ] {
+                assert!(run(&mut index, invalid, 2).is_err(), "{invalid}");
+            }
+        }
         let reference = &links[0]["evidence"];
         let reopened = store::open_citation(
             &mut index,
@@ -272,7 +294,7 @@ mod tests {
             .collect();
         assert_eq!(quote, "[[Relay|the part]]");
 
-        fs::rename(relay, sources.join("Replacement.md"))?;
+        fs::rename(relay, sources.join("ops").join("Replacement.md"))?;
         let stale = run(&mut index, "Entry", 2)?;
         assert_eq!(stale["links"], json!([]));
         assert_eq!(stale["unavailable_notes"], 1);

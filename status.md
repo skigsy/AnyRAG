@@ -2,6 +2,7 @@
 
 | Release | What it provides |
 | --- | --- |
+| [v1.3.1](https://github.com/skigsy/AnyRAG/releases/tag/v1.3.1) | Corrected packaged setup, browser graph decisions and exact citation reopening, and shared MCP collection discovery. |
 | [v1.3.0](https://github.com/skigsy/AnyRAG/releases/tag/v1.3.0) | Signed source inventory, Obsidian links, native Word and Excel table citations, and a Git mirror source recipe. |
 | [v1.2.0](https://github.com/skigsy/AnyRAG/releases/tag/v1.2.0) | Guided confirmation, cited name bindings, and read-only shared MCP in the Linux image. Three setup walkthroughs lead to a first openable citation. |
 | [v1.1.3](https://github.com/skigsy/AnyRAG/releases/tag/v1.1.3) | Optional signed, scoped relationship lookups and explicit answer states. Shared search keeps committed citations available during folder sync. |
