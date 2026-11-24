@@ -9,7 +9,7 @@
   <rect x="759" y="46" width="474" height="548" rx="14" fill="url(#grid)"/>
   <path d="M759 78V553" stroke="#423539"/>
   <g font-family="Georgia,'Times New Roman',serif" font-weight="400" letter-spacing="-3">
-    <text x="70" y="282" font-size="136" fill="#f5f0e8">Any<tspan fill="none" stroke="#e7ac69" stroke-width="2.4">RAG</tspan></text>
+    <text x="70" y="282" font-size="136" fill="#f5f0e8">AnyRAG</text>
   </g>
   <g font-family="Arial,Helvetica,sans-serif">
     <text x="76" y="104" font-size="18" letter-spacing="3.1" fill="#f6c279">OPEN SOURCE / RUST NATIVE</text>

@@ -9,7 +9,7 @@
 <rect x="0" y="0" width="1280" height="704" rx="0" fill="#0d0e11" stroke="none"/>
 <rect x="1" y="1" width="1278" height="702" rx="8" fill="none" stroke="#413438"/>
 <rect x="56" y="201" width="1168" height="398" rx="0" fill="url(#points)" stroke="none"/>
-<text x="60" y="55" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#f6c279">ANYRAG  /  01  /  PRODUCT ARCHITECTURE</text>
+<text x="60" y="55" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#f6c279"><tspan letter-spacing="0.25">AnyRAG</tspan>  /  01  /  PRODUCT ARCHITECTURE</text>
 <text x="58" y="126" font-family="Georgia, Times New Roman, serif" font-size="57" font-weight="400" letter-spacing="0" text-anchor="start" fill="#f5f0e8">One evidence pipeline</text>
 <text x="60" y="169" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">The same foundation serves a local vault and a private team.</text>
 <path d="M60 190H1220" fill="none" stroke="#343137" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>

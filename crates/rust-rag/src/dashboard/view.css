@@ -53,11 +53,7 @@ h3 { font-size: 1rem; font-weight: 600; }
 .skip-link:focus { transform: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .brand { display: grid; gap: .53rem; padding: .3rem .68rem 1.7rem; }
-.wordmark { font: 400 2.05rem/1 var(--serif); letter-spacing: -.05em; white-space: nowrap; }
-.wordmark span { color: var(--gold); }
-@supports (-webkit-text-stroke: 1px white) {
-  .wordmark span { color: transparent; -webkit-text-stroke: 1px var(--gold); }
-}
+.wordmark { font: 400 2.05rem/1 var(--serif); letter-spacing: -.05em; white-space: nowrap; color: var(--text); }
 .connection {
   display: inline-flex;
   align-items: center;
@@ -312,7 +308,6 @@ summary::marker { color: var(--muted); }
   .rail-inner { padding: 1.15rem .32rem .55rem; max-height: 100dvh; overflow-y: auto; }
   .brand { padding: .2rem .23rem 1.35rem; }
   .wordmark { font-size: clamp(1.17rem, 3.4vw, 1.6rem); }
-  .wordmark span { -webkit-text-stroke-width: .65px; }
   .product { display: none; }
   .rail a { padding-inline: .3rem; font-size: .84rem; overflow-wrap: anywhere; }
   .index-scope { margin-inline: .3rem; font-size: .79rem; }

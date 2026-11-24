@@ -35,11 +35,7 @@ h3 { font-size: 1rem; }
 .ops-rail { border-right: 1px solid #32313b; background: linear-gradient(170deg, #1b191c 0%, var(--rail) 24%); }
 .ops-rail-inner { position: sticky; top: 0; min-height: 100dvh; display: flex; flex-direction: column; padding: 1.9rem .85rem 1rem; }
 .ops-brand { display: grid; gap: .53rem; padding: .14rem .66rem 1.8rem; }
-.wordmark { font: 400 2.2rem/1 var(--serif); letter-spacing: -.055em; white-space: nowrap; }
-.wordmark span { color: var(--gold); }
-@supports (-webkit-text-stroke: 1px white) {
-  .wordmark span { color: transparent; -webkit-text-stroke: 1px var(--gold); }
-}
+.wordmark { font: 400 2.2rem/1 var(--serif); letter-spacing: -.055em; white-space: nowrap; color: var(--text); }
 .ops-caption { color: var(--muted); font: .72rem var(--mono); letter-spacing: .14em; text-transform: uppercase; }
 .ops-nav { display: grid; gap: .26rem; }
 .ops-nav button { display: flex; align-items: center; gap: .62rem; min-height: 44px; width: 100%; color: var(--muted); background: transparent; border: 1px solid transparent; border-left: 2px solid transparent; text-align: left; font-weight: 500; padding: .48rem .68rem; }
@@ -212,7 +208,6 @@ details > summary { cursor: pointer; color: var(--gold); }
   .ops-rail-inner { padding: 1.18rem .27rem .58rem; max-height: 100dvh; overflow-y: auto; }
   .ops-brand { padding: .15rem .22rem 1.15rem; }
   .wordmark { font-size: 1.25rem; }
-  .wordmark span { -webkit-text-stroke-width: .65px; }
   .ops-caption, .nav-icon { display: none; }
   .ops-nav button { font-size: .8rem; padding-inline: .34rem; overflow-wrap: anywhere; }
   .ops-rail-footer { margin-inline: .3rem; font-size: .72rem; }

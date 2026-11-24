@@ -29,7 +29,7 @@
   </defs>
   <rect x="1" y="1" width="958" height="524" rx="14" fill="url(#panel)" stroke="#514446" stroke-width="2"/>
   <rect x="22" y="132" width="916" height="294" rx="6" fill="url(#grid)"/>
-  <text x="34" y="34" class="eyebrow">ANYRAG / MODULAR ARCHITECTURE</text>
+  <text x="34" y="34" class="eyebrow"><tspan letter-spacing="0.25">AnyRAG</tspan> / MODULAR ARCHITECTURE</text>
   <text x="32" y="87" class="headline">Build with AnyRAG</text>
   <text x="34" y="118" class="caption">Start with keyword search. Add the pieces your workload needs.</text>
   <g aria-hidden="true">

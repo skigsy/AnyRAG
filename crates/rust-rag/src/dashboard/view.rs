@@ -104,7 +104,7 @@ fn page(
 <div class="frame">
   <aside class="rail">
     <div class="rail-inner">
-      <div class="brand"><span class="wordmark">Any<span>RAG</span></span><span class="label product">Operator console</span></div>
+      <div class="brand"><span class="wordmark">AnyRAG</span><span class="label product">Operator console</span></div>
       <nav aria-label="Dashboard sections">
         <a href="#overview" aria-current="location">Overview</a><a href="#pipeline">Coverage</a><a href="#indexed-sources" hidden>Sources</a><a href="#recent-activity">Activity</a>{review_link}
       </nav>
