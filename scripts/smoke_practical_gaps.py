@@ -1,4 +1,4 @@
-"""Four small, model-free smoke tests against the compiled Any RAG CLI."""
+"""Four small, model-free smoke tests against the compiled AnyRAG CLI."""
 
 import argparse
 import json

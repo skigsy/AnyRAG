@@ -1,4 +1,4 @@
-name: Qualify Any RAG Windows standalone build
+name: Qualify AnyRAG Windows standalone build
 
 on:
   workflow_dispatch:

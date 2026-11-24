@@ -1,6 +1,6 @@
 # Architecture and guided installation
 
-Any RAG assembles a local file index, retrieval pipeline, and optional shared service from one Rust workspace. Profiles add independent pieces. Every search returns located source passages, with optional relationship support and an optional model answer.
+AnyRAG assembles a local file index, retrieval pipeline, and optional shared service from one Rust workspace. Profiles add independent pieces. Every search returns located source passages, with optional relationship support and an optional model answer.
 
 [Full Graph RAG pipeline](#full-graph-rag-pipeline) · [Architecture choices](rag-reference.md) · [Private AWS deployment diagram](../infra/aws-deployment.md#deployment-architecture)
 
@@ -49,7 +49,7 @@ fn main() -> anyhow::Result<()> {
 }
 ~~~
 
-Use the Any RAG executable for PDF worker isolation. A custom embedding adapter can implement `rust_rag::Embedder` with the `model` feature. Use a different fingerprint and fresh embedding index when changing model, preprocessing, or dimensions. Always apply permissions before choosing which documents to embed or retrieve in a shared application.
+Use the AnyRAG executable for PDF worker isolation. A custom embedding adapter can implement `rust_rag::Embedder` with the `model` feature. Use a different fingerprint and fresh embedding index when changing model, preprocessing, or dimensions. Always apply permissions before choosing which documents to embed or retrieve in a shared application.
 
 ## Full Graph RAG pipeline
 

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="330" viewBox="0 0 1200 330" role="img" aria-labelledby="title desc">
-  <title id="title">Any RAG</title>
+  <title id="title">AnyRAG</title>
   <desc id="desc">A warm gold evidence trail goes from a source document through a relationship to a cited answer.</desc>
   <defs>
     <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#171719"/><stop offset="1" stop-color="#0d0e11"/></linearGradient>
@@ -15,8 +15,7 @@
     <text x="61" y="274" fill="#afa29a" font-size="16">Keep the evidence behind every hop.</text>
   </g>
   <g font-family="Georgia,'Times New Roman',serif" font-weight="400" letter-spacing="-2.5">
-    <text x="55" y="184" fill="#f5f0e8" font-size="105">Any</text>
-    <text x="253" y="184" fill="none" stroke="#e7ac69" stroke-width="1.8" font-size="105">RAG</text>
+    <text x="55" y="184" fill="#f5f0e8" font-size="105">Any<tspan fill="none" stroke="#e7ac69" stroke-width="1.8">RAG</tspan></text>
   </g>
   <g fill="none" stroke="#514446" stroke-width="1.5">
     <path d="M713 174L785 84L888 146L1001 73L1093 160L1030 245L888 146L789 246Z"/>

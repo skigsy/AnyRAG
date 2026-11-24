@@ -1,6 +1,6 @@
 # Infrastructure as code
 
-Any RAG ships native local profiles, a private shared-service image recipe, and CloudFormation for AWS. See [verification status](../status.md) for what has run and where. Cloud templates and adapters can be used without a maintainer evaluation; apply them only to an authorized account.
+AnyRAG ships native local profiles, a private shared-service image recipe, and CloudFormation for AWS. See [verification status](../status.md) for what has run and where. Cloud templates and adapters can be used without a maintainer evaluation; apply them only to an authorized account.
 
 ## Native local configuration as code
 

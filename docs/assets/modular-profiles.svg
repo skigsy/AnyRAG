@@ -18,7 +18,7 @@
   <rect width="1440" height="613" rx="9" fill="#0d0e11"/>
   <rect x="1" y="1" width="1438" height="611" rx="9" fill="none" stroke="#413438"/>
   <rect x="55" y="176" width="1330" height="345" fill="url(#grid)"/>
-  <text x="56" y="50" class="label">ANY RAG  /  MODULAR BUILD</text>
+  <text x="56" y="50" class="label">ANYRAG  /  MODULAR BUILD</text>
   <text x="53" y="113" class="title">One engine. Three starting points.</text>
   <text x="56" y="153" class="body">Start with a local search or compose the profiles your workload needs.</text>
   <path d="M1151 92L1208 52L1258 84L1308 43L1358 70L1383 49M1208 52L1308 43M1258 84L1358 70" fill="none" stroke="#514446"/>

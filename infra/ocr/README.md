@@ -1,6 +1,6 @@
 # Offline scanned and table PDF ingestion
 
-This experimental Linux amd64 recipe adds OCR and table evidence to a fresh folder index. Any RAG passes PDF bytes over a private Unix socket. The worker sees the submitted PDF and has no source-folder, index, credential, or container-runtime mounts. Use the native `--pdf` reader for text-layer collections. [OCR qualification status](../../status.md#all-in-one-release-gates)
+This experimental Linux amd64 recipe adds OCR and table evidence to a fresh folder index. AnyRAG passes PDF bytes over a private Unix socket. The worker sees the submitted PDF and has no source-folder, index, credential, or container-runtime mounts. Use the native `--pdf` reader for text-layer collections. [OCR qualification status](../../status.md#all-in-one-release-gates)
 
 ## Build and start
 

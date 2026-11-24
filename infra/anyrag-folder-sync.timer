@@ -1,5 +1,5 @@
 [Unit]
-Description=Refresh the Any RAG personal index periodically
+Description=Refresh the AnyRAG personal index periodically
 
 [Timer]
 OnCalendar=*:0/15

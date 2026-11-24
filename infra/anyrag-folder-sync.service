@@ -1,5 +1,5 @@
 [Unit]
-Description=Refresh the Any RAG personal index
+Description=Refresh the AnyRAG personal index
 
 [Service]
 Type=oneshot

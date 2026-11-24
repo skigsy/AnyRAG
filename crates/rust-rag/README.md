@@ -1,4 +1,4 @@
-# Any RAG command reference
+# AnyRAG command reference
 
 The root Cargo workspace builds `rust-rag`. [Install](../../docs/setup.md#install-from-this-repository) · [Status and platform verification](../../status.md) · [Architecture](../../docs/architecture.md)
 
@@ -164,7 +164,7 @@ The native text prototype, built with the same platform toolchain for a syntheti
 
 ## Maintainer check
 
-Build and test with the matching feature flags. Python is used here to drive the copied Rust executable through synthetic inputs; it is not installed by Any RAG.
+Build and test with the matching feature flags. Python is used here to drive the copied Rust executable through synthetic inputs; it is not installed by AnyRAG.
 
 ~~~sh
 cargo test --locked --features pdf,docx,model

@@ -1,6 +1,6 @@
 # Portable shared service on a private Linux VM
 
-Use this recipe on an existing Linux host, including an Azure VM. It requires a Docker-compatible runtime, a dedicated host-attached disk, a trusted OIDC issuer, and a private HTTPS listener. Run one service instance per state directory, with all its collection stores on the same host. Put state on an attached block device, and keep policy history and backups on independently managed storage. [Any RAG architecture](../docs/architecture.md) · [Azure Linux VM data disks](https://learn.microsoft.com/en-us/azure/virtual-machines/linux/disks-format-mount-data-disks-linux)
+Use this recipe on an existing Linux host, including an Azure VM. It requires a Docker-compatible runtime, a dedicated host-attached disk, a trusted OIDC issuer, and a private HTTPS listener. Run one service instance per state directory, with all its collection stores on the same host. Put state on an attached block device, and keep policy history and backups on independently managed storage. [AnyRAG architecture](../docs/architecture.md) · [Azure Linux VM data disks](https://learn.microsoft.com/en-us/azure/virtual-machines/linux/disks-format-mount-data-disks-linux)
 
 ## Build an image
 
@@ -47,7 +47,7 @@ Run the commands below or the [personal Linux quickstart](../docs/setup.md#try-p
 
 1. Mount the attached block volume at `/var/lib/rust-rag`. Provision it for service UID and GID `10001` with mode `0700`. Use encrypted storage if the data requires it. Keep the image read-only and writable temporary data on a bounded tmpfs.
 2. Copy [the shared profile](shared.profile.example.json) to `/etc/rust-rag/profile.json` outside the repo and update the issuer, audience, JWKS URL, and source locations. Set `allow_proxy_http: true` for the isolated container listener, and publish only to the host loopback behind your TLS proxy. Give the service account read access to this file, source collections, and any approved model credential files. Keep sources mounted read-only. Provision each collection as a separate non-overlapping path.
-3. Set up the policy directory on durable storage separate from index state. Use mode `0700` on the policy and backup roots. On Linux, Any RAG rejects group or other permissions on these directories. Give UID and GID `10001` access to the roots and policy files, and mount policy read-only in the container. Publish `versions/1.json` from a trusted host-side administrator, then atomically replace `current.json` with those exact bytes. Increase `version` for every policy change and publish its version file before replacing `current.json`.
+3. Set up the policy directory on durable storage separate from index state. Use mode `0700` on the policy and backup roots. On Linux, AnyRAG rejects group or other permissions on these directories. Give UID and GID `10001` access to the roots and policy files, and mount policy read-only in the container. Publish `versions/1.json` from a trusted host-side administrator, then atomically replace `current.json` with those exact bytes. Increase `version` for every policy change and publish its version file before replacing `current.json`.
 
 ```json
 {
@@ -119,7 +119,7 @@ After starting the container in the next section, verify the proxy with `curl --
 
 Use a current native build with the `shared` feature and install Git on the service host. The packaged Linux image omits Git. For a container deployment, use a source-built derivative with distro-packaged Git on the service PATH and mount the mirror read-only.
 
-Use a dedicated bare mirror of one company documentation repository. A separate operator or job with source-specific read credentials fetches updates into the mirror. Keep its credential configuration outside Any RAG and give the service account read access to the mirror. Use a self-contained mirror and retain the history needed to advance the last indexed commit. For example, under the mirror operator account:
+Use a dedicated bare mirror of one company documentation repository. A separate operator or job with source-specific read credentials fetches updates into the mirror. Keep its credential configuration outside AnyRAG and give the service account read access to the mirror. Use a self-contained mirror and retain the history needed to advance the last indexed commit. For example, under the mirror operator account:
 
 ```sh
 git clone --bare --single-branch --branch main https://git.internal.example/team/handbook.git /srv/anyrag/handbook.git
@@ -137,7 +137,7 @@ In the service profile, set one entry in `sources` to:
 }
 ```
 
-Use the same collection name in the signed Any RAG policy. Include that collection's readers and reviewers only if they can access every indexed path. Synchronize organization grants into the signed policy through the deployment's trusted identity process. The prefix selects a literal portion of the tree. Authorization applies to the whole collection. Use separate restricted repositories and collections when readers need different access. A tag under `refs/tags/` is also supported.
+Use the same collection name in the signed AnyRAG policy. Include that collection's readers and reviewers only if they can access every indexed path. Synchronize organization grants into the signed policy through the deployment's trusted identity process. The prefix selects a literal portion of the tree. Authorization applies to the whole collection. Use separate restricted repositories and collections when readers need different access. A tag under `refs/tags/` is also supported.
 
 Run `service-doctor`, refresh the mirror, then sync as an administrator. The service reads one commit and publishes the completed collection transaction at once. Queries use the last committed data during staging. An edit keeps the source ID for the same path and retires its old citation. A rename retires the old path and adds the new path. Reopen a citation using the same signed reader, then remove that subject's grant and confirm the citation and search result become unavailable.
 

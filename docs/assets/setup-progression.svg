@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="526" viewBox="0 0 960 526" role="img" aria-labelledby="title desc">
-  <title id="title">Any RAG building blocks</title>
+  <title id="title">AnyRAG building blocks</title>
   <desc id="desc">Seven mix-and-match capabilities are available to solo, team, and company setups: keyword search, PDF and Word, embeddings and reranking, cited answers, typed Graph RAG, shared access, and recovery. Describe your workload, get a recommendation, then choose the pieces you need.</desc>
   <defs>
     <linearGradient id="panel" x2="1" y2="1"><stop stop-color="#1c171c"/><stop offset="1" stop-color="#0d0e11"/></linearGradient>
@@ -29,8 +29,8 @@
   </defs>
   <rect x="1" y="1" width="958" height="524" rx="14" fill="url(#panel)" stroke="#514446" stroke-width="2"/>
   <rect x="22" y="132" width="916" height="294" rx="6" fill="url(#grid)"/>
-  <text x="34" y="34" class="eyebrow">ANY RAG / MODULAR ARCHITECTURE</text>
-  <text x="32" y="87" class="headline">Build with Any RAG</text>
+  <text x="34" y="34" class="eyebrow">ANYRAG / MODULAR ARCHITECTURE</text>
+  <text x="32" y="87" class="headline">Build with AnyRAG</text>
   <text x="34" y="118" class="caption">Start with keyword search. Add the pieces your workload needs.</text>
   <g aria-hidden="true">
     <path d="M772 77L811 50L848 70L887 42L926 60M811 50L887 42M848 70L926 60" fill="none" stroke="#705252" stroke-width="1.2"/>

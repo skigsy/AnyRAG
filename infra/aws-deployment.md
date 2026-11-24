@@ -1,10 +1,10 @@
 # Private AWS reference profile
 
-The Any RAG reference uses one EC2 host, an encrypted attached EBS volume, a private HTTPS load balancer, and versioned S3 source, backup, and policy stores. SQLite is authoritative for evidence and typed assertions. The optional Neptune mode adds a private, encrypted projection. Treat this as a single-organization, single-host profile with an explicit recovery procedure. Live deployment and capacity evidence must match the chosen region, network, image, and models. [Neptune private access](https://docs.aws.amazon.com/neptune/latest/userguide/security-vpc.html)
+The AnyRAG reference uses one EC2 host, an encrypted attached EBS volume, a private HTTPS load balancer, and versioned S3 source, backup, and policy stores. SQLite is authoritative for evidence and typed assertions. The optional Neptune mode adds a private, encrypted projection. Treat this as a single-organization, single-host profile with an explicit recovery procedure. Live deployment and capacity evidence must match the chosen region, network, image, and models. [Neptune private access](https://docs.aws.amazon.com/neptune/latest/userguide/security-vpc.html)
 
 ## Deployment architecture
 
-[![Private HTTPS traffic reaches a single Any RAG EC2 host with SQLite on encrypted EBS. Separate S3 buckets hold sources, policy, and backups. Optional Neptune holds opaque topology.](../docs/assets/aws-reference-architecture.svg)](../docs/assets/aws-reference-architecture.svg)
+[![Private HTTPS traffic reaches a single AnyRAG EC2 host with SQLite on encrypted EBS. Separate S3 buckets hold sources, policy, and backups. Optional Neptune holds opaque topology.](../docs/assets/aws-reference-architecture.svg)](../docs/assets/aws-reference-architecture.svg)
 
 ## Before creating a change set
 
@@ -113,7 +113,7 @@ rust_rag_request POST /v1/admin/reopen
 
 ## Opt-in Neptune
 
-Set `EnableNeptune=true`, choose an available `NeptuneEngineVersion` supporting custom openCypher IDs, and provide `NeptuneKeySecretArn` containing 64 hexadecimal characters from a secure generator. Keep the key stable per deployment. Configure a named extraction endpoint and grant its use for the approved collections. The host injects the private writer endpoint and a protected key-file reference. This profile runs its own Neptune cluster for one Any RAG deployment. [Neptune custom IDs](https://docs.aws.amazon.com/neptune/latest/userguide/access-graph-opencypher-extensions.html)
+Set `EnableNeptune=true`, choose an available `NeptuneEngineVersion` supporting custom openCypher IDs, and provide `NeptuneKeySecretArn` containing 64 hexadecimal characters from a secure generator. Keep the key stable per deployment. Configure a named extraction endpoint and grant its use for the approved collections. The host injects the private writer endpoint and a protected key-file reference. This profile runs its own Neptune cluster for one AnyRAG deployment. [Neptune custom IDs](https://docs.aws.amazon.com/neptune/latest/userguide/access-graph-opencypher-extensions.html)
 
 The template permits Neptune traffic from the application security group and grants query actions to the instance role. The adapter projects keyed entity, revision, generation, and collection identifiers with opaque edge anchors. SQLite retains assertion predicates, labels, and evidence. The adapter activates a generation only after staging all its edges, then retries bounded cleanup of older generations. Reads use a fixed parameterized query that compares every authorized collection's generation and limits candidates to authorized active revisions before ordering and limiting. A stale or oversized scope yields graph unavailable. The application checks the returned anchors in SQLite before traversing or citing them. Use the writer endpoint for both staging and lookup. [Neptune endpoint roles](https://docs.aws.amazon.com/neptune/latest/userguide/feature-overview-endpoints.html) · [Neptune IAM data resources](https://docs.aws.amazon.com/neptune/latest/userguide/iam-data-resources.html)
 

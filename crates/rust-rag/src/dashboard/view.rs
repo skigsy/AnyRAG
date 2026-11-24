@@ -96,7 +96,7 @@ fn page(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <title>Index overview | Any RAG</title>
+  <title>Index overview | AnyRAG</title>
   {assets}
 </head>
 <body>
@@ -104,7 +104,7 @@ fn page(
 <div class="frame">
   <aside class="rail">
     <div class="rail-inner">
-      <div class="brand"><span class="wordmark">Any <span>RAG</span></span><span class="label product">Operator console</span></div>
+      <div class="brand"><span class="wordmark">Any<span>RAG</span></span><span class="label product">Operator console</span></div>
       <nav aria-label="Dashboard sections">
         <a href="#overview" aria-current="location">Overview</a><a href="#pipeline">Coverage</a><a href="#indexed-sources" hidden>Sources</a><a href="#recent-activity">Activity</a>{review_link}
       </nav>
@@ -281,7 +281,7 @@ pub(super) fn cards(snapshot: &Snapshot, review: Option<&anyhow::Result<ReviewQu
             ),
             ReadState::UnsupportedSchema => (
                 "Unsupported index format",
-                "Use an Any RAG build that supports this index format.",
+                "Use an AnyRAG build that supports this index format.",
             ),
         };
         let _ = write!(

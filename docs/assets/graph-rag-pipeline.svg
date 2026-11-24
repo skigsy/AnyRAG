@@ -26,7 +26,7 @@
 <rect width="1440" height="1258" fill="#0d0e11"/>
 <rect x="1" y="1" width="1438" height="1256" rx="9" fill="none" stroke="#413438"/>
 <rect x="52" y="191" width="1336" height="954" fill="url(#grid)"/>
-<text x="56" y="52" class="label">ANY RAG  /  03  /  END-TO-END ARCHITECTURE</text>
+<text x="56" y="52" class="label">ANYRAG  /  03  /  END-TO-END ARCHITECTURE</text>
 <text x="54" y="123" class="title">Full Graph RAG pipeline</text>
 <text x="56" y="164" class="subtitle">From source revisions to evidence for every hop.</text>
 <path d="M56 185H1384" class="wire"/>

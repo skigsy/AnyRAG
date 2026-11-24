@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="772" viewBox="0 0 1280 772" role="img" aria-labelledby="title desc">
 <title id="title">Private AWS reference</title>
-<desc id="desc">Team clients reach a private HTTPS load balancer with OIDC tokens. A single EC2 host runs Any RAG with SQLite on encrypted EBS. Optional Neptune receives opaque topology. Separate versioned S3 stores hold sources, current access policy and backups. The host reads its image and secrets through scoped IAM.</desc>
+<desc id="desc">Team clients reach a private HTTPS load balancer with OIDC tokens. A single EC2 host runs AnyRAG with SQLite on encrypted EBS. Optional Neptune receives opaque topology. Separate versioned S3 stores hold sources, current access policy and backups. The host reads its image and secrets through scoped IAM.</desc>
 <defs>
   <pattern id="points" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#2b2429"/></pattern>
   <marker id="gold-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1 1L7 4L1 7" fill="none" stroke="#f6c279" stroke-width="1.35"/></marker>
@@ -9,7 +9,7 @@
 <rect x="0" y="0" width="1280" height="772" rx="0" fill="#0d0e11" stroke="none"/>
 <rect x="1" y="1" width="1278" height="770" rx="8" fill="none" stroke="#413438"/>
 <rect x="56" y="201" width="1168" height="466" rx="0" fill="url(#points)" stroke="none"/>
-<text x="60" y="55" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#f6c279">ANY RAG  /  02  /  DEPLOYMENT ARCHITECTURE</text>
+<text x="60" y="55" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#f6c279">ANYRAG  /  02  /  DEPLOYMENT ARCHITECTURE</text>
 <text x="58" y="126" font-family="Georgia, Times New Roman, serif" font-size="57" font-weight="400" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Private AWS reference</text>
 <text x="60" y="169" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">One host, independent policy and backups, and an opt-in graph projection.</text>
 <path d="M60 190H1220" fill="none" stroke="#343137" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
@@ -36,7 +36,7 @@
 <path d="M347 426H418" fill="none" stroke="#f6c279" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#gold-arrow)"/>
 <rect x="420" y="370" width="467" height="112" rx="9" fill="#1b171b" stroke="#a96450"/>
 <text x="440" y="397" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" letter-spacing="2.4" text-anchor="start" fill="#edcf97">COMPUTE</text>
-<text x="440" y="432" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">Any RAG on EC2</text>
+<text x="440" y="432" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" letter-spacing="0" text-anchor="start" fill="#f5f0e8">AnyRAG on EC2</text>
 <text x="440" y="461" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="400" letter-spacing="0" text-anchor="start" fill="#c0b4ae">Shared API, scoped IAM and private ingress</text>
 <path d="M652 482V524" fill="none" stroke="#f6c279" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#gold-arrow)"/>
 <rect x="420" y="526" width="467" height="109" rx="9" fill="#1b171b" stroke="#a96450"/>

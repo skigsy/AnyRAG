@@ -1,6 +1,6 @@
 # Privacy and security boundaries
 
-Any RAG has an owner-local profile and an optional shared service for one organization. See [status](status.md) for the checks completed on each runtime and deployment.
+AnyRAG has an owner-local profile and an optional shared service for one organization. See [status](status.md) for the checks completed on each runtime and deployment.
 
 ## Public source boundary
 
@@ -9,7 +9,7 @@ Keep private documents, credentials, runtime state, and backups outside the chec
 ## Runtime product requirements
 
 - Private local processing has no external processing API, telemetry or outbound model calls. Disclose initial package/model downloads separately; verify runtime with networking disabled after prerequisites are present.
-- Evidence-only describes a capability, not its privacy boundary. A hosted harness may send retrieved text, queries, filenames/paths, metadata, logs and tool/file contents to its provider. Strict-local data needs a local consuming client/harness. Hosted installation assistance must remain on nonsensitive configuration if that boundary is required. Any RAG's offline checks cannot certify an external harness or guarantee what it reads/sends.
+- Evidence-only describes a capability, not its privacy boundary. A hosted harness may send retrieved text, queries, filenames/paths, metadata, logs and tool/file contents to its provider. Strict-local data needs a local consuming client/harness. Hosted installation assistance must remain on nonsensitive configuration if that boundary is required. AnyRAG's offline checks cannot certify an external harness or guarantee what it reads/sends.
 - External generation, embeddings, extraction, OCR, reranking and telemetry are separate data-egress choices. Default telemetry off. Keep document/query text, source URLs and credentials out of operational logs; diagnostic opt-in is bounded and reversible.
 - Local service binds to loopback by default. Shared/network exposure requires identity, authorization, TLS and an explicit profile. Restrict browser origins; never combine permissive CORS with privileged sessions.
 - Shared access uses the configured issuer and server-owned collection grants. Apply grants before ranking, graph expansion, citation resolution, and model dispatch. The service rereads authoritative policy per request and fails closed when it cannot verify it. Keep collection grants aligned with the source's actual permissions. Write access to an admitted source folder or prefix conveys authority to add content to that collection, so restrict writer access and treat every passage as untrusted.
@@ -46,4 +46,4 @@ For WAL mode, request a truncate checkpoint after removal and inspect whether it
 
 A public vulnerability-reporting route must be established before release. Until then, use a private maintainer channel already known to you; do not post secrets or private documents to a public issue.
 
-CLI export requires an explicit new output file outside checkout/known sync locations and uses owner-only POSIX mode; no full-corpus stdout route is exposed. A consuming external assistant remains outside Any RAG's control. Strong or weak retrieval results remain candidate context with unverified answer support.
+CLI export requires an explicit new output file outside checkout/known sync locations and uses owner-only POSIX mode; no full-corpus stdout route is exposed. A consuming external assistant remains outside AnyRAG's control. Strong or weak retrieval results remain candidate context with unverified answer support.

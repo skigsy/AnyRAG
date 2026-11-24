@@ -1,12 +1,12 @@
-# Any RAG operating instructions
+# AnyRAG operating instructions
 
 ## Workspace and current phase
 
-This directory is the Any RAG operating workspace. Read `status.md`, `docs/project/inspect.md`, and `docs/project/plan.md` before work. The public repository is `skigsy/AnyRAG`. Verify the explicit public allowlist and full Git history before publication. Subsequent releases, artifact uploads and paid infrastructure require their own authorization. Use sub-agents as needed. Never copy client data.
+This directory is the AnyRAG operating workspace. Read `status.md`, `docs/project/inspect.md`, and `docs/project/plan.md` before work. The public repository is `skigsy/AnyRAG`. Verify the explicit public allowlist and full Git history before publication. Subsequent releases, artifact uploads and paid infrastructure require their own authorization. Use sub-agents as needed. Never copy client data.
 
 ## Build and installation requests
 
-When someone points an agent at Any RAG and says “install”, “set this up”, or “build RAG for this workload”:
+When someone points an agent at AnyRAG and says “install”, “set this up”, or “build RAG for this workload”:
 
 1. Check [status](status.md) and the [decision tree](docs/field-guide.md#decision-tree). Use `rust-rag plan <profile> --json` to get a starting recipe and `rust-rag capabilities --json` to see the selected build's features.
 2. Start from what the user gave. Ask for a representative question, its expected evidence, file formats, access, update needs, machine limits, or permitted destinations only when the answer changes the build.
